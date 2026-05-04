@@ -13,6 +13,7 @@ import { StatsCard } from "@/components/StatsCard";
 import { ObsCard } from "@/components/ObsCard";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import { EvaluationCard } from "@/components/EvaluationCard";
+import { SessionSummaryCard } from "@/components/SessionSummaryCard";
 import type { VoiceEvent, EventStats, EvaluationMetrics, UserFeedback } from "@likelion/shared";
 
 const AGENT_URL = process.env.NEXT_PUBLIC_AGENT_URL || "http://localhost:3001";
@@ -30,6 +31,7 @@ export default function Home() {
   const [lastEvent, setLastEvent] = useState<VoiceEvent | null>(null);
   const [detecting, setDetecting] = useState(false);
   const [latencyMs, setLatencyMs] = useState<number | null>(null);
+  const [sessionSummary, setSessionSummary] = useState<VoiceEvent[] | null>(null);
   const sessionIdRef = useRef<string | null>(null);
   const obs = useObs();
   const playClipSound = useClipSound();
@@ -137,8 +139,18 @@ export default function Home() {
 
   const handleStart = useCallback(() => {
     sessionIdRef.current = generateSessionId();
+    setSessionSummary(null);
+    setEvents([]);
+    setTranscripts([]);
+    setLastEvent(null);
+    setLatencyMs(null);
     start();
   }, [start]);
+
+  const handleEndSession = useCallback(() => {
+    stop();
+    setSessionSummary([...events]);
+  }, [stop, events]);
 
   return (
     <main className="max-w-6xl mx-auto p-6">
@@ -167,16 +179,23 @@ export default function Home() {
         </div>
       )}
 
+      {sessionSummary && (
+        <SessionSummaryCard
+          events={sessionSummary}
+          onDismiss={() => setSessionSummary(null)}
+        />
+      )}
+
       <div className="mb-6 flex items-center gap-4">
         <button
-          onClick={isListening ? stop : handleStart}
+          onClick={isListening ? handleEndSession : handleStart}
           className={`px-6 py-3 rounded-lg font-semibold text-lg transition-colors ${
             isListening
               ? "bg-red-600 hover:bg-red-700"
               : "bg-green-600 hover:bg-green-700"
           }`}
         >
-          {isListening ? "Stop Listening" : "Start Listening"}
+          {isListening ? "End Session" : "Start Session"}
         </button>
         {isListening && !interimText && !detecting && (
           <span className="text-green-400 animate-pulse">Listening...</span>
