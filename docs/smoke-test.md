@@ -1,0 +1,129 @@
+# Smoke Test Checklist
+
+## 1. Environment Setup
+
+- [ ] `.env` exists with all required values:
+  ```
+  PORT=3001
+  OBS_HOST=localhost
+  OBS_PORT=4455
+  OBS_PASSWORD=<your password>
+  OBS_RECORDING_DIR=/mnt/c/Users/josan/Videos/화면 녹화
+  OBS_CLIP_RENAME_ENABLED=true
+  CLASSIFIER_DEBUG=true
+  ```
+- [ ] `npm install` completes without errors
+- [ ] `npm run build -w packages/shared` succeeds
+
+## 2. OBS Setup
+
+- [ ] OBS Studio is running
+- [ ] WebSocket server enabled (Tools → WebSocket Server Settings)
+- [ ] Port set to 4455, password matches `.env`
+- [ ] Replay Buffer enabled (Settings → Output → Replay Buffer)
+- [ ] Replay buffer max time set (e.g., 30s)
+- [ ] Recording directory matches `OBS_RECORDING_DIR`
+
+## 3. Start Services
+
+```bash
+npm run dev:agent   # should print: Agent server running on http://localhost:3001
+npm run dev:web     # should open: http://localhost:3002
+```
+
+- [ ] Agent starts without errors on port 3001
+- [ ] Web dashboard loads on port 3002
+- [ ] `curl http://localhost:3001/health` returns `{"status":"ok",...}`
+
+## 4. Voice Trigger Test
+
+| Step | Action | Expected |
+|------|--------|----------|
+| 4.1 | Click "Start Session" | Button changes to "End Session", session ID appears |
+| 4.2 | Click test button "와 대박" | Event appears in timeline with excitement, confidence ≥60% |
+| 4.3 | Click "와 대박" again immediately | Ignored (cooldown), no new event |
+| 4.4 | Wait 5s, click "와 대박" again | New event accepted |
+| 4.5 | Click "아 망했다" | Event: defeat, no clip triggered |
+| 4.6 | Check agent console | `[Voice] ACCEPTED`, `[Classifier]` debug logs visible |
+
+## 5. OBS Save Test
+
+| Step | Action | Expected |
+|------|--------|----------|
+| 5.1 | In OBS Card, click "Connect" | Status turns green: "Connected" |
+| 5.2 | Click "Start Replay Buffer" | Status shows "Replay Buffer: Active" |
+| 5.3 | Click test button "와 대박" | "clip saved" badge appears, ding sound plays |
+| 5.4 | Check agent console | `[OBS] Replay saved for event ...` |
+| 5.5 | Check OBS recording directory | New clip file exists |
+
+## 6. Clip Rename Test
+
+| Step | Action | Expected |
+|------|--------|----------|
+| 6.1 | After step 5.3, wait 2s | Agent log: `[ClipFile] Renamed clip: ...` |
+| 6.2 | Check EventLogPanel | Blue filename shown: `YYYYMMDD_HHMMSS_excitement_와_대박.mkv` |
+| 6.3 | Check OBS recording directory | File renamed to match the pattern |
+| 6.4 | Verify original filename is gone | Only renamed file exists |
+
+## 7. Session Summary Test
+
+| Step | Action | Expected |
+|------|--------|----------|
+| 7.1 | Generate 3+ events via test buttons | Events appear in timeline |
+| 7.2 | Click "End Session" | Session Summary card appears |
+| 7.3 | Check summary stats | Total reactions, clips saved, clip rate % displayed |
+| 7.4 | Check category breakdown | Badges show correct counts |
+| 7.5 | Check interpretation | Korean text describing session (e.g., "주된 반응: 흥분") |
+| 7.6 | Type reflection memo | Textarea accepts input |
+| 7.7 | Click "Save Report" | "Saved!" confirmation appears |
+| 7.8 | `curl http://localhost:3001/sessions/reports` | Report with memo present in JSON |
+
+## 8. Failure Case Tests
+
+| Step | Action | Expected |
+|------|--------|----------|
+| 8.1 | Disconnect OBS, click "와 대박" | "OBS not ready" badge, no crash |
+| 8.2 | Send "안녕하세요" | Ignored (low confidence), agent log: `[EventGuard] IGNORED` |
+| 8.3 | Send "아" (single noise word) | Filtered by classifier, neutral 0% |
+| 8.4 | Set `OBS_RECORDING_DIR=` (empty), trigger clip | clipSaved: true, clipRenameError shown |
+| 8.5 | Set invalid OBS password, click Connect | Error: "OBS WebSocket requires a password..." |
+| 8.6 | Stop agent, try from dashboard | Fetch fails gracefully, no crash |
+
+## 9. Expected Results Summary
+
+| Feature | Pass Criteria |
+|---------|--------------|
+| Agent health | Returns status "ok" |
+| Voice classification | "와 대박" → excitement ≥60% |
+| Noise filter | "아", "어" → neutral 0% |
+| Event guard | Duplicate within 3s ignored, cooldown 5s enforced |
+| OBS connect | Green status when OBS running + correct password |
+| Replay save | SaveReplayBuffer succeeds, file appears |
+| Clip rename | File renamed with timestamp_category_transcript format |
+| Session summary | Correct counts, interpretation generated |
+| Reflection memo | Persisted in session-reports.json |
+| Error handling | No crashes on OBS disconnect, missing dir, bad input |
+
+## Quick Full Run (2 minutes)
+
+```bash
+# Terminal 1
+npm run dev:agent
+
+# Terminal 2
+npm run dev:web
+
+# Browser
+1. Open http://localhost:3002
+2. Demo Mode ON
+3. Connect OBS → Start Replay Buffer
+4. Start Session
+5. Click "와 대박" → verify clip saved + filename
+6. Click "아 망했다" → verify no clip
+7. Click "나이스" → verify excitement
+8. End Session → verify summary
+9. Write memo → Save Report
+10. curl http://localhost:3001/sessions/reports → verify JSON
+```
+
+All 10 steps should complete without errors.
