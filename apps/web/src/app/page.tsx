@@ -3,10 +3,14 @@
 import { useState, useEffect, useCallback } from "react";
 import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
 import { useObs } from "@/hooks/useObs";
+import { DemoBanner } from "@/components/DemoBanner";
+import { Timeline } from "@/components/Timeline";
+import { TestButtons } from "@/components/TestButtons";
 import { TranscriptPanel } from "@/components/TranscriptPanel";
 import { EventLogPanel } from "@/components/EventLogPanel";
 import { StatsCard } from "@/components/StatsCard";
 import { ObsCard } from "@/components/ObsCard";
+import { SettingsPanel } from "@/components/SettingsPanel";
 import type { VoiceEvent, EventStats } from "@likelion/shared";
 
 const AGENT_URL = process.env.NEXT_PUBLIC_AGENT_URL || "http://localhost:3001";
@@ -15,6 +19,8 @@ export default function Home() {
   const [events, setEvents] = useState<VoiceEvent[]>([]);
   const [transcripts, setTranscripts] = useState<string[]>([]);
   const [stats, setStats] = useState<EventStats | null>(null);
+  const [demoMode, setDemoMode] = useState(false);
+  const [lastEvent, setLastEvent] = useState<VoiceEvent | null>(null);
   const obs = useObs();
 
   const fetchStats = useCallback(async () => {
@@ -32,7 +38,7 @@ export default function Home() {
     fetchStats();
   }, [fetchStats]);
 
-  const handleTranscript = async (transcript: string) => {
+  const sendTranscript = useCallback(async (transcript: string) => {
     setTranscripts((prev) => [...prev, transcript]);
 
     try {
@@ -45,24 +51,40 @@ export default function Home() {
         const data = await res.json();
         if (data.event) {
           setEvents((prev) => [...prev, data.event]);
+          setLastEvent(data.event);
           fetchStats();
         }
       }
     } catch (err) {
       console.error("Failed to send transcript:", err);
     }
-  };
+  }, [fetchStats]);
 
   const { isListening, start, stop } = useSpeechRecognition({
-    onResult: handleTranscript,
+    onResult: sendTranscript,
     lang: "ko-KR",
   });
 
   return (
     <main className="max-w-6xl mx-auto p-6">
-      <h1 className="text-3xl font-bold mb-6">
-        Voice Reactive Game Flow Agent
-      </h1>
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-3xl font-bold">Voice Reactive Game Flow Agent</h1>
+        <label className="flex items-center gap-2 cursor-pointer">
+          <span className="text-sm text-gray-400">Demo Mode</span>
+          <input
+            type="checkbox"
+            checked={demoMode}
+            onChange={(e) => setDemoMode(e.target.checked)}
+            className="w-5 h-5 rounded bg-gray-700 border-gray-600"
+          />
+        </label>
+      </div>
+
+      {demoMode && (
+        <div className="mb-6">
+          <DemoBanner isListening={isListening} lastEvent={lastEvent} />
+        </div>
+      )}
 
       <div className="mb-6 flex items-center gap-4">
         <button
@@ -90,6 +112,15 @@ export default function Home() {
           onSaveReplay={obs.saveReplay}
           loading={obs.loading}
         />
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+        <TestButtons onSend={sendTranscript} />
+        <SettingsPanel />
+      </div>
+
+      <div className="mb-6">
+        <Timeline events={events} />
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
