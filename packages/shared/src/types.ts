@@ -47,6 +47,17 @@ export interface ClassificationResult {
   category: ReactionCategory;
   confidence: number;
   matchedKeywords: string[];
+  debug?: ClassificationDebug;
+}
+
+export interface ClassificationDebug {
+  rawScore: number;
+  phraseMatches: string[];
+  keywordMatches: string[];
+  repetitionBoost: number;
+  intensityBoost: number;
+  filtered: boolean;
+  filterReason?: string;
 }
 
 export interface EventStats {
