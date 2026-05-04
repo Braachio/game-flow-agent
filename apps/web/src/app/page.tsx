@@ -27,6 +27,8 @@ export default function Home() {
   const [metrics, setMetrics] = useState<EvaluationMetrics | null>(null);
   const [demoMode, setDemoMode] = useState(false);
   const [lastEvent, setLastEvent] = useState<VoiceEvent | null>(null);
+  const [detecting, setDetecting] = useState(false);
+  const [latencyMs, setLatencyMs] = useState<number | null>(null);
   const sessionIdRef = useRef<string | null>(null);
   const obs = useObs();
 
@@ -52,8 +54,9 @@ export default function Home() {
     fetchMetrics();
   }, [fetchStats, fetchMetrics]);
 
-  const sendTranscript = useCallback(async (transcript: string) => {
+  const sendTranscript = useCallback(async (transcript: string, speechStartTime: number) => {
     setTranscripts((prev) => [...prev, transcript]);
+    setDetecting(true);
 
     try {
       const res = await fetch(`${AGENT_URL}/events/voice`, {
@@ -66,17 +69,32 @@ export default function Home() {
       });
       if (res.ok) {
         const data = await res.json();
+        const elapsed = Math.round(performance.now() - speechStartTime);
+        setLatencyMs(elapsed);
+
         if (data.event) {
           setEvents((prev) => [...prev, data.event]);
           setLastEvent(data.event);
+          console.log(`[Latency] speech→event: ${elapsed}ms`);
         }
         fetchStats();
         fetchMetrics();
       }
     } catch (err) {
       console.error("Failed to send transcript:", err);
+    } finally {
+      setDetecting(false);
     }
   }, [fetchStats, fetchMetrics]);
+
+  // Wrapper for test buttons (no speechStartTime)
+  const sendTestTranscript = useCallback((transcript: string) => {
+    sendTranscript(transcript, performance.now());
+  }, [sendTranscript]);
+
+  const handleInterim = useCallback((_transcript: string) => {
+    // Interim results shown via interimText from the hook
+  }, []);
 
   const handleFeedback = useCallback(async (eventId: string, feedback: UserFeedback) => {
     try {
@@ -106,15 +124,16 @@ export default function Home() {
     } catch {}
   }, [fetchMetrics]);
 
+  const { isListening, interimText, start, stop } = useSpeechRecognition({
+    onResult: sendTranscript,
+    onInterim: handleInterim,
+    lang: "ko-KR",
+  });
+
   const handleStart = useCallback(() => {
     sessionIdRef.current = generateSessionId();
     start();
-  }, []);
-
-  const { isListening, start, stop } = useSpeechRecognition({
-    onResult: sendTranscript,
-    lang: "ko-KR",
-  });
+  }, [start]);
 
   return (
     <main className="max-w-6xl mx-auto p-6">
@@ -133,7 +152,13 @@ export default function Home() {
 
       {demoMode && (
         <div className="mb-6">
-          <DemoBanner isListening={isListening} lastEvent={lastEvent} />
+          <DemoBanner
+            isListening={isListening}
+            lastEvent={lastEvent}
+            interimText={interimText}
+            detecting={detecting}
+            latencyMs={latencyMs}
+          />
         </div>
       )}
 
@@ -148,12 +173,21 @@ export default function Home() {
         >
           {isListening ? "Stop Listening" : "Start Listening"}
         </button>
-        {isListening && (
+        {isListening && !interimText && !detecting && (
           <span className="text-green-400 animate-pulse">Listening...</span>
         )}
+        {interimText && (
+          <span className="text-blue-300 text-sm italic">&quot;{interimText}&quot;</span>
+        )}
+        {detecting && (
+          <span className="text-yellow-300 animate-pulse">Detecting...</span>
+        )}
+        {latencyMs !== null && !detecting && (
+          <span className="text-xs text-gray-500">{latencyMs}ms</span>
+        )}
         {sessionIdRef.current && (
-          <span className="text-xs text-gray-500">
-            Session: {sessionIdRef.current.slice(8, 21)}
+          <span className="text-xs text-gray-600">
+            {sessionIdRef.current.slice(8, 21)}
           </span>
         )}
       </div>
@@ -171,7 +205,7 @@ export default function Home() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-        <TestButtons onSend={sendTranscript} />
+        <TestButtons onSend={sendTestTranscript} />
         <EvaluationCard metrics={metrics} onMissedMoment={handleMissedMoment} />
       </div>
 

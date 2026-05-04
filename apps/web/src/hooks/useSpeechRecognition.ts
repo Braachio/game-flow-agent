@@ -3,16 +3,20 @@
 import { useRef, useState, useCallback } from "react";
 
 interface UseSpeechRecognitionOptions {
-  onResult: (transcript: string) => void;
+  onResult: (transcript: string, speechStartTime: number) => void;
+  onInterim?: (transcript: string) => void;
   lang?: string;
 }
 
 export function useSpeechRecognition({
   onResult,
+  onInterim,
   lang = "ko-KR",
 }: UseSpeechRecognitionOptions) {
   const [isListening, setIsListening] = useState(false);
+  const [interimText, setInterimText] = useState("");
   const recognitionRef = useRef<SpeechRecognition | null>(null);
+  const speechStartRef = useRef<number>(0);
 
   const start = useCallback(() => {
     const SpeechRecognition =
@@ -26,12 +30,25 @@ export function useSpeechRecognition({
     const recognition = new SpeechRecognition();
     recognition.lang = lang;
     recognition.continuous = true;
-    recognition.interimResults = false;
+    recognition.interimResults = true;
 
     recognition.onresult = (event: SpeechRecognitionEvent) => {
       const last = event.results[event.results.length - 1];
-      if (last.isFinal) {
-        onResult(last[0].transcript.trim());
+      const transcript = last[0].transcript.trim();
+
+      if (!last.isFinal) {
+        // Interim result — track speech start time on first interim
+        if (speechStartRef.current === 0) {
+          speechStartRef.current = performance.now();
+        }
+        setInterimText(transcript);
+        onInterim?.(transcript);
+      } else {
+        // Final result — use the speech start time for latency measurement
+        const startTime = speechStartRef.current || performance.now();
+        speechStartRef.current = 0;
+        setInterimText("");
+        onResult(transcript, startTime);
       }
     };
 
@@ -43,7 +60,6 @@ export function useSpeechRecognition({
     };
 
     recognition.onend = () => {
-      // Auto-restart if still supposed to be listening
       if (recognitionRef.current) {
         recognition.start();
       }
@@ -52,7 +68,7 @@ export function useSpeechRecognition({
     recognitionRef.current = recognition;
     recognition.start();
     setIsListening(true);
-  }, [lang, onResult]);
+  }, [lang, onResult, onInterim]);
 
   const stop = useCallback(() => {
     if (recognitionRef.current) {
@@ -61,7 +77,9 @@ export function useSpeechRecognition({
       recognitionRef.current = null;
     }
     setIsListening(false);
+    setInterimText("");
+    speechStartRef.current = 0;
   }, []);
 
-  return { isListening, start, stop };
+  return { isListening, interimText, start, stop };
 }
