@@ -1,7 +1,8 @@
-import type { VoiceEvent } from "@likelion/shared";
+import type { VoiceEvent, UserFeedback } from "@likelion/shared";
 
 interface TimelineProps {
   events: VoiceEvent[];
+  onFeedback: (eventId: string, feedback: UserFeedback) => void;
 }
 
 const categoryColors: Record<string, string> = {
@@ -13,7 +14,7 @@ const categoryColors: Record<string, string> = {
   neutral: "border-gray-600",
 };
 
-export function Timeline({ events }: TimelineProps) {
+export function Timeline({ events, onFeedback }: TimelineProps) {
   const recent = [...events].reverse().slice(0, 10);
 
   return (
@@ -40,11 +41,37 @@ export function Timeline({ events }: TimelineProps) {
                     {event.clipSaved === false && event.obsError && (
                       <span className="text-xs text-red-400">no clip</span>
                     )}
+                    {event.feedback === "false_positive" && (
+                      <span className="text-xs bg-red-800 text-red-200 px-1 rounded">FP</span>
+                    )}
+                    {event.feedback === "useful" && (
+                      <span className="text-xs bg-green-800 text-green-200 px-1 rounded">useful</span>
+                    )}
                   </div>
                 </div>
-                <span className="text-xs text-gray-500 ml-2 whitespace-nowrap">
-                  {new Date(event.timestamp).toLocaleTimeString("ko-KR")}
-                </span>
+                <div className="flex items-center gap-1 ml-2">
+                  {!event.feedback && (
+                    <>
+                      <button
+                        onClick={() => onFeedback(event.id, "useful")}
+                        title="Mark as Useful"
+                        className="text-xs px-1.5 py-0.5 bg-green-800 hover:bg-green-700 text-green-200 rounded transition-colors"
+                      >
+                        Good
+                      </button>
+                      <button
+                        onClick={() => onFeedback(event.id, "false_positive")}
+                        title="Mark as False Positive"
+                        className="text-xs px-1.5 py-0.5 bg-red-800 hover:bg-red-700 text-red-200 rounded transition-colors"
+                      >
+                        FP
+                      </button>
+                    </>
+                  )}
+                  <span className="text-xs text-gray-500 whitespace-nowrap">
+                    {new Date(event.timestamp).toLocaleTimeString("ko-KR")}
+                  </span>
+                </div>
               </div>
             </div>
           ))}

@@ -6,8 +6,11 @@ export type ReactionCategory =
   | "defeat"
   | "neutral";
 
+export type UserFeedback = "false_positive" | "useful" | null;
+
 export interface VoiceEvent {
   id: string;
+  sessionId?: string;
   timestamp: string;
   transcript: string;
   category: ReactionCategory;
@@ -15,11 +18,13 @@ export interface VoiceEvent {
   clipSaved?: boolean;
   obsTriggeredAt?: string;
   obsError?: string;
+  feedback?: UserFeedback;
   metadata?: Record<string, unknown>;
 }
 
 export interface VoiceEventRequest {
   transcript: string;
+  sessionId?: string;
   timestamp?: string;
 }
 
@@ -54,4 +59,23 @@ export interface ObsStatus {
   connected: boolean;
   replayBufferActive: boolean;
   error?: string;
+}
+
+export interface EvaluationMetrics {
+  totalTranscripts: number;
+  detectedEvents: number;
+  clippedEvents: number;
+  ignoredEvents: number;
+  falsePositives: number;
+  falseNegatives: number;
+  useful: number;
+  precision: number | null;
+  sessionId: string | null;
+}
+
+export interface FalseNegativeEvent {
+  id: string;
+  sessionId?: string;
+  timestamp: string;
+  note?: string;
 }

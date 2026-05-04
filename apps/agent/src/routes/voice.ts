@@ -13,12 +13,14 @@ export const voiceRoute: FastifyPluginAsync = async (app) => {
   app.post<{ Body: VoiceEventRequest }>(
     "/events/voice",
     async (request, reply): Promise<VoiceEventResponse | VoiceEventIgnoredResponse> => {
-      const { transcript, timestamp } = request.body;
+      const { transcript, sessionId, timestamp } = request.body;
 
       if (!transcript || typeof transcript !== "string") {
         reply.status(400);
         throw new Error("transcript is required");
       }
+
+      eventRepository.incrementTranscriptCount();
 
       const classification = classify(transcript);
 
@@ -30,6 +32,7 @@ export const voiceRoute: FastifyPluginAsync = async (app) => {
       );
 
       if (!guard.allowed) {
+        eventRepository.incrementIgnoredCount();
         reply.status(200);
         return { ignored: true, reason: guard.reason! };
       }
@@ -38,9 +41,10 @@ export const voiceRoute: FastifyPluginAsync = async (app) => {
         `[Voice] ACCEPTED: "${transcript}" → ${classification.category} (${(classification.confidence * 100).toFixed(0)}%)`
       );
 
-      // Save event first
+      // Save event
       const event = await eventRepository.save({
         transcript,
+        sessionId,
         timestamp: timestamp || new Date().toISOString(),
         ...classification,
       });
