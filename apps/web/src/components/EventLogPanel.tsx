@@ -27,9 +27,21 @@ export function EventLogPanel({ events }: EventLogPanelProps) {
                 <span className={`font-medium ${categoryColors[event.category] || ""}`}>
                   {event.category}
                 </span>
-                <span className="text-gray-400 text-xs">
-                  {Math.round(event.confidence * 100)}%
-                </span>
+                <div className="flex items-center gap-2">
+                  {event.clipSaved === true && (
+                    <span className="bg-green-700 text-green-200 text-xs px-2 py-0.5 rounded">
+                      clip saved
+                    </span>
+                  )}
+                  {event.clipSaved === false && event.obsError && (
+                    <span className="bg-red-900 text-red-300 text-xs px-2 py-0.5 rounded">
+                      OBS not ready
+                    </span>
+                  )}
+                  <span className="text-gray-400 text-xs">
+                    {Math.round(event.confidence * 100)}%
+                  </span>
+                </div>
               </div>
               <p className="text-gray-300 mt-1">{event.transcript}</p>
             </div>

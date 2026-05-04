@@ -1,5 +1,13 @@
 import OBSWebSocket from "obs-websocket-js";
-import type { VoiceEvent, ObsStatus } from "@likelion/shared";
+import type { VoiceEvent, ObsStatus, ReactionCategory } from "@likelion/shared";
+
+const CLIP_CATEGORIES: ReactionCategory[] = ["excitement", "victory", "surprise"];
+
+export interface ObsClipResult {
+  clipSaved: boolean;
+  obsTriggeredAt?: string;
+  obsError?: string;
+}
 
 class ObsService {
   private obs = new OBSWebSocket();
@@ -9,6 +17,10 @@ class ObsService {
 
   get connected() {
     return this._connected;
+  }
+
+  get replayBufferActive() {
+    return this._replayBufferActive;
   }
 
   async connect(): Promise<ObsStatus> {
@@ -114,6 +126,47 @@ class ObsService {
     return this.getStatus();
   }
 
+  shouldTriggerClip(category: ReactionCategory): boolean {
+    return CLIP_CATEGORIES.includes(category);
+  }
+
+  async triggerClipForEvent(event: VoiceEvent): Promise<ObsClipResult> {
+    if (!this.shouldTriggerClip(event.category)) {
+      console.log(
+        `[OBS] Replay save skipped: category "${event.category}" is not clip-worthy`
+      );
+      return { clipSaved: false };
+    }
+
+    console.log(
+      `[VoiceEvent] Detected high-value event: "${event.transcript}" → ${event.category} (${(event.confidence * 100).toFixed(0)}%)`
+    );
+
+    const triggeredAt = new Date().toISOString();
+
+    if (!this._connected) {
+      const reason = "OBS not connected";
+      console.log(`[OBS] Replay save skipped: ${reason}`);
+      return { clipSaved: false, obsTriggeredAt: triggeredAt, obsError: reason };
+    }
+
+    if (!this._replayBufferActive) {
+      const reason = "Replay buffer not active";
+      console.log(`[OBS] Replay save skipped: ${reason}`);
+      return { clipSaved: false, obsTriggeredAt: triggeredAt, obsError: reason };
+    }
+
+    try {
+      await this.obs.call("SaveReplayBuffer");
+      console.log(`[OBS] Replay saved for event ${event.id}`);
+      return { clipSaved: true, obsTriggeredAt: triggeredAt };
+    } catch (err: unknown) {
+      const reason = this.formatError(err);
+      console.error(`[OBS] Replay save failed for event ${event.id}: ${reason}`);
+      return { clipSaved: false, obsTriggeredAt: triggeredAt, obsError: reason };
+    }
+  }
+
   private formatError(err: unknown): string {
     if (err instanceof Error) {
       const msg = err.message;
@@ -133,9 +186,3 @@ class ObsService {
 }
 
 export const obsService = new ObsService();
-
-// Keep onVoiceEvent for future auto-clip integration
-export async function onVoiceEvent(_event: VoiceEvent): Promise<void> {
-  // TODO: Auto-save replay buffer on high-confidence events
-  // Will be enabled after manual OBS control is verified working
-}

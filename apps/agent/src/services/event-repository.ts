@@ -44,6 +44,15 @@ class EventRepository {
     return event;
   }
 
+  async update(event: VoiceEvent): Promise<void> {
+    await this.init();
+    const idx = this.events.findIndex((e) => e.id === event.id);
+    if (idx !== -1) {
+      this.events[idx] = event;
+      await writeFile(EVENTS_FILE, JSON.stringify(this.events, null, 2));
+    }
+  }
+
   async getAll(): Promise<VoiceEvent[]> {
     await this.init();
     return this.events;

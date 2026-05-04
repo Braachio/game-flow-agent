@@ -7,7 +7,7 @@ import type {
 import { classify } from "../services/classifier.js";
 import { eventRepository } from "../services/event-repository.js";
 import { eventGuard } from "../services/event-guard.js";
-import { onVoiceEvent } from "../services/obs.service.js";
+import { obsService } from "../services/obs.service.js";
 
 export const voiceRoute: FastifyPluginAsync = async (app) => {
   app.post<{ Body: VoiceEventRequest }>(
@@ -38,14 +38,25 @@ export const voiceRoute: FastifyPluginAsync = async (app) => {
         `[Voice] ACCEPTED: "${transcript}" → ${classification.category} (${(classification.confidence * 100).toFixed(0)}%)`
       );
 
+      // Save event first
       const event = await eventRepository.save({
         transcript,
         timestamp: timestamp || new Date().toISOString(),
         ...classification,
       });
 
-      // Notify OBS service (stub)
-      await onVoiceEvent(event);
+      // Attempt OBS clip for high-value categories
+      const clipResult = await obsService.triggerClipForEvent(event);
+
+      // Update event with clip result
+      if (clipResult.obsTriggeredAt) {
+        event.clipSaved = clipResult.clipSaved;
+        event.obsTriggeredAt = clipResult.obsTriggeredAt;
+        if (clipResult.obsError) {
+          event.obsError = clipResult.obsError;
+        }
+        await eventRepository.update(event);
+      }
 
       return { event };
     }
