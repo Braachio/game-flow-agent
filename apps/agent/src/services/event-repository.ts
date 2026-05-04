@@ -1,7 +1,7 @@
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
-import type { VoiceEvent, ReactionCategory } from "@likelion/shared";
+import type { VoiceEvent, ReactionCategory, EventStats } from "@likelion/shared";
 
 const DATA_DIR = join(process.cwd(), "data");
 const EVENTS_FILE = join(DATA_DIR, "events.json");
@@ -52,6 +52,27 @@ class EventRepository {
   async getRecent(limit = 50): Promise<VoiceEvent[]> {
     await this.init();
     return this.events.slice(-limit);
+  }
+
+  async getStats(): Promise<EventStats> {
+    await this.init();
+    const byCategory: Record<ReactionCategory, number> = {
+      excitement: 0,
+      frustration: 0,
+      surprise: 0,
+      victory: 0,
+      defeat: 0,
+      neutral: 0,
+    };
+    for (const event of this.events) {
+      byCategory[event.category]++;
+    }
+    const lastEvent = this.events[this.events.length - 1];
+    return {
+      total: this.events.length,
+      byCategory,
+      lastEventTime: lastEvent?.timestamp ?? null,
+    };
   }
 }
 

@@ -24,6 +24,11 @@ export interface VoiceEventResponse {
   event: VoiceEvent;
 }
 
+export interface VoiceEventIgnoredResponse {
+  ignored: true;
+  reason: "duplicate" | "cooldown" | "low_confidence";
+}
+
 export interface HealthResponse {
   status: "ok";
   uptime: number;
@@ -34,4 +39,10 @@ export interface ClassificationResult {
   category: ReactionCategory;
   confidence: number;
   matchedKeywords: string[];
+}
+
+export interface EventStats {
+  total: number;
+  byCategory: Record<ReactionCategory, number>;
+  lastEventTime: string | null;
 }

@@ -1,16 +1,33 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
 import { TranscriptPanel } from "@/components/TranscriptPanel";
 import { EventLogPanel } from "@/components/EventLogPanel";
-import type { VoiceEvent } from "@likelion/shared";
+import { StatsCard } from "@/components/StatsCard";
+import type { VoiceEvent, EventStats } from "@likelion/shared";
 
 const AGENT_URL = process.env.NEXT_PUBLIC_AGENT_URL || "http://localhost:3001";
 
 export default function Home() {
   const [events, setEvents] = useState<VoiceEvent[]>([]);
   const [transcripts, setTranscripts] = useState<string[]>([]);
+  const [stats, setStats] = useState<EventStats | null>(null);
+
+  const fetchStats = useCallback(async () => {
+    try {
+      const res = await fetch(`${AGENT_URL}/events/stats`);
+      if (res.ok) {
+        setStats(await res.json());
+      }
+    } catch {
+      // agent not reachable
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchStats();
+  }, [fetchStats]);
 
   const handleTranscript = async (transcript: string) => {
     setTranscripts((prev) => [...prev, transcript]);
@@ -23,7 +40,11 @@ export default function Home() {
       });
       if (res.ok) {
         const data = await res.json();
-        setEvents((prev) => [...prev, data.event]);
+        if (data.event) {
+          setEvents((prev) => [...prev, data.event]);
+          fetchStats();
+        }
+        // data.ignored === true means event was filtered (duplicate/cooldown/low confidence)
       }
     } catch (err) {
       console.error("Failed to send transcript:", err);
@@ -41,7 +62,7 @@ export default function Home() {
         Voice Reactive Game Flow Agent
       </h1>
 
-      <div className="mb-6">
+      <div className="mb-6 flex items-center gap-4">
         <button
           onClick={isListening ? stop : start}
           className={`px-6 py-3 rounded-lg font-semibold text-lg transition-colors ${
@@ -53,10 +74,12 @@ export default function Home() {
           {isListening ? "Stop Listening" : "Start Listening"}
         </button>
         {isListening && (
-          <span className="ml-4 text-green-400 animate-pulse">
-            Listening...
-          </span>
+          <span className="text-green-400 animate-pulse">Listening...</span>
         )}
+      </div>
+
+      <div className="mb-6">
+        <StatsCard stats={stats} />
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
