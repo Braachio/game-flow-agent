@@ -8,6 +8,7 @@ import { classify } from "../services/classifier.js";
 import { eventRepository } from "../services/event-repository.js";
 import { eventGuard } from "../services/event-guard.js";
 import { obsService } from "../services/obs.service.js";
+import { renameClipForEvent } from "../services/clip-file.service.js";
 
 export const voiceRoute: FastifyPluginAsync = async (app) => {
   app.post<{ Body: VoiceEventRequest }>(
@@ -59,6 +60,24 @@ export const voiceRoute: FastifyPluginAsync = async (app) => {
         if (clipResult.obsError) {
           event.obsError = clipResult.obsError;
         }
+
+        // If clip was saved, attempt to rename the file
+        if (clipResult.clipSaved) {
+          const fileResult = await renameClipForEvent(event);
+          if (fileResult.clipFilename) {
+            event.clipFilename = fileResult.clipFilename;
+          }
+          if (fileResult.originalFilePath) {
+            event.originalFilePath = fileResult.originalFilePath;
+          }
+          if (fileResult.renamedFilePath) {
+            event.renamedFilePath = fileResult.renamedFilePath;
+          }
+          if (fileResult.clipRenameError) {
+            event.clipRenameError = fileResult.clipRenameError;
+          }
+        }
+
         await eventRepository.update(event);
       }
 

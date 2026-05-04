@@ -19,6 +19,10 @@ export interface VoiceEvent {
   clipSaved?: boolean;
   obsTriggeredAt?: string;
   obsError?: string;
+  clipFilename?: string;
+  originalFilePath?: string;
+  renamedFilePath?: string;
+  clipRenameError?: string;
   feedback?: UserFeedback;
   metadata?: Record<string, unknown>;
 }

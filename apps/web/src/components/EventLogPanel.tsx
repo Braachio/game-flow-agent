@@ -38,12 +38,22 @@ export function EventLogPanel({ events }: EventLogPanelProps) {
                       OBS not ready
                     </span>
                   )}
+                  {event.clipRenameError && (
+                    <span className="bg-orange-900 text-orange-300 text-xs px-2 py-0.5 rounded">
+                      rename failed
+                    </span>
+                  )}
                   <span className="text-gray-400 text-xs">
                     {Math.round(event.confidence * 100)}%
                   </span>
                 </div>
               </div>
               <p className="text-gray-300 mt-1">{event.transcript}</p>
+              {event.clipFilename && (
+                <p className="text-xs text-blue-400 mt-1 truncate" title={event.clipFilename}>
+                  {event.clipFilename}
+                </p>
+              )}
             </div>
           ))
         )}
