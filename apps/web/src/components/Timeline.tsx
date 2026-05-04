@@ -1,4 +1,6 @@
 import type { VoiceEvent, UserFeedback } from "@likelion/shared";
+import { HighlightedText } from "./HighlightedText";
+import { ConfidenceBar } from "./ConfidenceBar";
 
 interface TimelineProps {
   events: VoiceEvent[];
@@ -24,17 +26,22 @@ export function Timeline({ events, onFeedback }: TimelineProps) {
         <p className="text-gray-500 text-sm">No events yet.</p>
       ) : (
         <div className="space-y-2">
-          {recent.map((event) => (
+          {recent.map((event, idx) => (
             <div
               key={event.id}
-              className={`border-l-4 ${categoryColors[event.category] || "border-gray-600"} bg-gray-700 rounded-r px-3 py-2`}
+              className={`border-l-4 ${categoryColors[event.category] || "border-gray-600"} bg-gray-700 rounded-r px-3 py-2 ${idx === 0 ? "animate-flash" : ""}`}
             >
               <div className="flex justify-between items-start">
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm text-gray-200 truncate">{event.transcript}</p>
+                  <p className="text-sm text-gray-200">
+                    <HighlightedText
+                      text={event.transcript}
+                      keywords={event.matchedKeywords || []}
+                    />
+                  </p>
                   <div className="flex items-center gap-2 mt-1">
                     <span className="text-xs text-gray-400">{event.category}</span>
-                    <span className="text-xs text-gray-500">{Math.round(event.confidence * 100)}%</span>
+                    <ConfidenceBar confidence={event.confidence} />
                     {event.clipSaved === true && (
                       <span className="text-xs text-green-400">clip saved</span>
                     )}
@@ -48,6 +55,11 @@ export function Timeline({ events, onFeedback }: TimelineProps) {
                       <span className="text-xs bg-green-800 text-green-200 px-1 rounded">useful</span>
                     )}
                   </div>
+                  {event.matchedKeywords && event.matchedKeywords.length > 0 && (
+                    <p className="text-xs text-gray-500 mt-1">
+                      matched: {event.matchedKeywords.map((k) => `"${k}"`).join(", ")}
+                    </p>
+                  )}
                 </div>
                 <div className="flex items-center gap-1 ml-2">
                   {!event.feedback && (

@@ -15,6 +15,7 @@ export interface VoiceEvent {
   transcript: string;
   category: ReactionCategory;
   confidence: number;
+  matchedKeywords?: string[];
   clipSaved?: boolean;
   obsTriggeredAt?: string;
   obsError?: string;

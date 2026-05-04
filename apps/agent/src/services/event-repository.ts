@@ -65,6 +65,7 @@ class EventRepository {
       transcript: input.transcript,
       category: input.category,
       confidence: input.confidence,
+      matchedKeywords: input.matchedKeywords,
     };
     this.events.push(event);
     await writeFile(EVENTS_FILE, JSON.stringify(this.events, null, 2));

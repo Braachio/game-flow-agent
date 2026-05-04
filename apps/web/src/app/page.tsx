@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
 import { useObs } from "@/hooks/useObs";
+import { useClipSound } from "@/hooks/useClipSound";
 import { DemoBanner } from "@/components/DemoBanner";
 import { Timeline } from "@/components/Timeline";
 import { TestButtons } from "@/components/TestButtons";
@@ -31,6 +32,7 @@ export default function Home() {
   const [latencyMs, setLatencyMs] = useState<number | null>(null);
   const sessionIdRef = useRef<string | null>(null);
   const obs = useObs();
+  const playClipSound = useClipSound();
 
   const fetchStats = useCallback(async () => {
     try {
@@ -76,6 +78,9 @@ export default function Home() {
           setEvents((prev) => [...prev, data.event]);
           setLastEvent(data.event);
           console.log(`[Latency] speech→event: ${elapsed}ms`);
+          if (data.event.clipSaved) {
+            playClipSound();
+          }
         }
         fetchStats();
         fetchMetrics();
