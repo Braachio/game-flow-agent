@@ -91,3 +91,14 @@ export interface FalseNegativeEvent {
   timestamp: string;
   note?: string;
 }
+
+export interface SessionReport {
+  sessionId: string;
+  startedAt: string;
+  endedAt: string;
+  totalReactions: number;
+  clipsSaved: number;
+  byCategory: Record<ReactionCategory, number>;
+  interpretation: string;
+  memo?: string;
+}

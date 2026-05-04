@@ -18,14 +18,22 @@
 
 브라우저 Web Speech API로 마이크 입력을 실시간 텍스트 변환하고, 한국어 게임 반응 키워드를 분류하여, 고가치 반응 감지 시 OBS 리플레이 버퍼를 자동 저장한다.
 
-## MVP Scope (4주)
+## MVP Scope (4주) — Complete
 
-| Week | Focus |
-|------|-------|
-| 1 | 기본 아키텍처, 음성 캡처, 키워드 분류기, 이벤트 저장 |
-| 2 | OBS 연동, 자동 클립, 이벤트 가드, 평가 시스템 |
-| 3 | 사용자 테스트, 키워드 튜닝, 데모 모드 |
-| 4 | 프레젠테이션 준비, 문서화, 결과 정리 |
+| Week | Focus | Status |
+|------|-------|--------|
+| 1 | 기본 아키텍처, 음성 캡처, 키워드 분류기, 이벤트 저장 | Done |
+| 2 | OBS 연동, 자동 클립, 이벤트 가드, 평가 시스템 | Done |
+| 3 | 분류기 개선, UX 피드백, 세션 요약, 사용자 메모 | Done |
+| 4 | 프레젠테이션 준비, 문서화, 최종 마무리 | Done |
+
+## Final MVP 구성
+
+1. **Voice Detection** — Web Speech API interim results + noise filter
+2. **Contextual Event Tagging** — phrase matching, keyword rules, intensity/repetition scoring
+3. **OBS Clip Saving** — auto-save replay on high-value reactions
+4. **Session Summary** — per-session stats, category breakdown, Korean interpretation
+5. **User Reflection Memo** — optional memo persisted with session report
 
 ## Architecture
 

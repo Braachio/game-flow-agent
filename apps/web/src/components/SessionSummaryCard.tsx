@@ -1,8 +1,11 @@
-import type { VoiceEvent, ReactionCategory } from "@likelion/shared";
+import { useState } from "react";
+import type { VoiceEvent, ReactionCategory, SessionReport } from "@likelion/shared";
 
 interface SessionSummaryCardProps {
   events: VoiceEvent[];
+  sessionId: string;
   onDismiss: () => void;
+  onSave: (report: SessionReport) => void;
 }
 
 function generateInterpretation(
@@ -41,7 +44,7 @@ function generateInterpretation(
   const negativeCount = (breakdown.frustration || 0) + (breakdown.defeat || 0);
 
   if (positiveCount > negativeCount * 2) {
-    parts.push("전반적으로 긍정적인 게임 경험이었습니다! 🎮");
+    parts.push("전반적으로 긍정적인 게임 경험이었습니다!");
   } else if (negativeCount > positiveCount * 2) {
     parts.push("힘든 경기였던 것 같습니다. 다음엔 더 잘 될 거예요!");
   } else if (total >= 5) {
@@ -51,7 +54,10 @@ function generateInterpretation(
   return parts.join(" ");
 }
 
-export function SessionSummaryCard({ events, onDismiss }: SessionSummaryCardProps) {
+export function SessionSummaryCard({ events, sessionId, onDismiss, onSave }: SessionSummaryCardProps) {
+  const [memo, setMemo] = useState("");
+  const [saved, setSaved] = useState(false);
+
   const total = events.length;
   const clipsSaved = events.filter((e) => e.clipSaved === true).length;
 
@@ -76,6 +82,25 @@ export function SessionSummaryCard({ events, onDismiss }: SessionSummaryCardProp
     victory: "승리",
     defeat: "패배",
     neutral: "기타",
+  };
+
+  const handleSave = () => {
+    const startedAt = events.length > 0 ? events[0].timestamp : new Date().toISOString();
+    const endedAt = events.length > 0 ? events[events.length - 1].timestamp : new Date().toISOString();
+
+    const report: SessionReport = {
+      sessionId,
+      startedAt,
+      endedAt,
+      totalReactions: total,
+      clipsSaved,
+      byCategory: breakdown as Record<ReactionCategory, number>,
+      interpretation,
+      memo: memo.trim() || undefined,
+    };
+
+    onSave(report);
+    setSaved(true);
   };
 
   return (
@@ -122,7 +147,33 @@ export function SessionSummaryCard({ events, onDismiss }: SessionSummaryCardProp
           ))}
       </div>
 
-      <p className="text-sm text-gray-300 leading-relaxed">{interpretation}</p>
+      <p className="text-sm text-gray-300 leading-relaxed mb-4">{interpretation}</p>
+
+      <div className="border-t border-gray-700 pt-4">
+        <label className="block text-sm text-gray-400 mb-2">
+          Reflection Memo (optional)
+        </label>
+        <textarea
+          value={memo}
+          onChange={(e) => setMemo(e.target.value)}
+          disabled={saved}
+          placeholder="이번 세션에 대한 메모를 남겨주세요..."
+          className="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-sm text-gray-200 placeholder-gray-500 resize-none disabled:opacity-50"
+          rows={3}
+        />
+        <div className="flex justify-end mt-2">
+          {saved ? (
+            <span className="text-sm text-green-400">Saved!</span>
+          ) : (
+            <button
+              onClick={handleSave}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded text-sm font-medium transition-colors"
+            >
+              Save Report
+            </button>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

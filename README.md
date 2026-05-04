@@ -2,22 +2,27 @@
 
 게임 중 음성 반응을 실시간 분류하여 OBS 리플레이 버퍼를 자동 저장하는 도구.
 
-## MVP Status: Complete
+## MVP Status: Final
 
-### Completed Features
+### Core Features
 
-- [x] 마이크 음성 인식 (Web Speech API, 한국어)
-- [x] 키워드 기반 감정 분류 (5개 카테고리, 90+ 키워드)
+- [x] **Voice Detection** — Web Speech API (한국어), interim results, noise filter
+- [x] **Contextual Event Tagging** — phrase/keyword matching, intensity scoring, repetition detection
+- [x] **OBS Clip Saving** — auto-save replay buffer on excitement/victory/surprise
+- [x] **Session Summary** — per-session stats, category breakdown, auto-interpretation
+- [x] **User Reflection Memo** — optional memo at session end, persisted with report
+
+### Additional Features
+
 - [x] 이벤트 가드 (중복 3s, 쿨다운 5s, 신뢰도 60% 필터)
-- [x] OBS WebSocket 연결 및 리플레이 버퍼 제어
-- [x] 고가치 반응(excitement/victory/surprise) 자동 클립 저장
-- [x] 데모 모드 (대형 상태 배너)
+- [x] 데모 모드 (대형 상태 배너, interim text, latency 표시)
 - [x] 수동 테스트 버튼
-- [x] 세션 기반 이벤트 추적
-- [x] 사용자 피드백 (Good / False Positive / Missed Moment)
+- [x] 사용자 피드백 (Good / FP / Missed Moment)
 - [x] 평가 메트릭 대시보드 (precision 계산)
-- [x] 이벤트 타임라인 (최근 10개, 피드백 버튼 포함)
-- [x] 설정 패널 (read-only)
+- [x] 이벤트 타임라인 (keyword highlights, confidence bar, flash)
+- [x] 클립 저장 사운드 효과
+- [x] 세션 리포트 저장 (GET /sessions/reports)
+- [x] 분류기 디버그 모드 (CLASSIFIER_DEBUG=true)
 
 ### Not Implemented
 
@@ -77,18 +82,18 @@ npm run dev:web     # http://localhost:3002
 4. excitement/victory/surprise 이벤트 → "clip saved" 배지 확인
 5. OBS 녹화 폴더에서 `.mkv` 클립 파일 확인
 
-## Evaluation Flow
+## Session Flow
 
-1. Start Listening 클릭 (세션 자동 생성)
+1. **Start Session** 클릭 (세션 자동 생성, 이전 데이터 리셋)
 2. 게임 플레이하며 자연스럽게 반응
-3. 타임라인에서:
-   - 정확한 감지 → **Good** 클릭
-   - 잘못된 감지 → **FP** 클릭
-   - 놓친 순간 → **Missed Moment** 클릭
-4. Evaluation 카드에서 실시간 precision 확인
-5. API로 결과 추출:
+3. 타임라인에서 피드백: **Good** / **FP** / **Missed Moment**
+4. **End Session** 클릭
+5. Session Summary 카드 확인 (반응 수, 클립 수, 카테고리 분석)
+6. (선택) Reflection Memo 작성
+7. **Save Report** 클릭 → `data/session-reports.json`에 저장
+8. 세션 리포트 조회:
    ```bash
-   curl http://localhost:3001/events/evaluation
+   curl http://localhost:3001/sessions/reports
    ```
 
 ## API Endpoints
@@ -106,6 +111,8 @@ npm run dev:web     # http://localhost:3002
 | POST | /obs/disconnect | OBS 해제 |
 | POST | /obs/replay/start | 리플레이 버퍼 시작 |
 | POST | /obs/replay/save | 리플레이 저장 |
+| GET | /sessions/reports | 세션 리포트 목록 |
+| POST | /sessions/reports | 세션 리포트 저장 |
 
 ## Documentation
 

@@ -14,7 +14,7 @@ import { ObsCard } from "@/components/ObsCard";
 import { SettingsPanel } from "@/components/SettingsPanel";
 import { EvaluationCard } from "@/components/EvaluationCard";
 import { SessionSummaryCard } from "@/components/SessionSummaryCard";
-import type { VoiceEvent, EventStats, EvaluationMetrics, UserFeedback } from "@likelion/shared";
+import type { VoiceEvent, EventStats, EvaluationMetrics, UserFeedback, SessionReport } from "@likelion/shared";
 
 const AGENT_URL = process.env.NEXT_PUBLIC_AGENT_URL || "http://localhost:3001";
 
@@ -152,6 +152,18 @@ export default function Home() {
     setSessionSummary([...events]);
   }, [stop, events]);
 
+  const handleSaveReport = useCallback(async (report: SessionReport) => {
+    try {
+      await fetch(`${AGENT_URL}/sessions/reports`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(report),
+      });
+    } catch (err) {
+      console.error("Failed to save session report:", err);
+    }
+  }, []);
+
   return (
     <main className="max-w-6xl mx-auto p-6">
       <div className="flex items-center justify-between mb-6">
@@ -182,7 +194,9 @@ export default function Home() {
       {sessionSummary && (
         <SessionSummaryCard
           events={sessionSummary}
+          sessionId={sessionIdRef.current || ""}
           onDismiss={() => setSessionSummary(null)}
+          onSave={handleSaveReport}
         />
       )}
 
