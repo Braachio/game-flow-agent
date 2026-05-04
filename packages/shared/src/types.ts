@@ -46,3 +46,9 @@ export interface EventStats {
   byCategory: Record<ReactionCategory, number>;
   lastEventTime: string | null;
 }
+
+export interface ObsStatus {
+  connected: boolean;
+  replayBufferActive: boolean;
+  error?: string;
+}

@@ -3,6 +3,7 @@ import cors from "@fastify/cors";
 import { healthRoute } from "./routes/health.js";
 import { voiceRoute } from "./routes/voice.js";
 import { statsRoute } from "./routes/stats.js";
+import { obsRoute } from "./routes/obs.js";
 
 const app = Fastify({ logger: true });
 
@@ -10,6 +11,7 @@ await app.register(cors, { origin: true });
 app.register(healthRoute);
 app.register(voiceRoute);
 app.register(statsRoute);
+app.register(obsRoute);
 
 const PORT = Number(process.env.PORT) || 3001;
 

@@ -2,9 +2,11 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
+import { useObs } from "@/hooks/useObs";
 import { TranscriptPanel } from "@/components/TranscriptPanel";
 import { EventLogPanel } from "@/components/EventLogPanel";
 import { StatsCard } from "@/components/StatsCard";
+import { ObsCard } from "@/components/ObsCard";
 import type { VoiceEvent, EventStats } from "@likelion/shared";
 
 const AGENT_URL = process.env.NEXT_PUBLIC_AGENT_URL || "http://localhost:3001";
@@ -13,6 +15,7 @@ export default function Home() {
   const [events, setEvents] = useState<VoiceEvent[]>([]);
   const [transcripts, setTranscripts] = useState<string[]>([]);
   const [stats, setStats] = useState<EventStats | null>(null);
+  const obs = useObs();
 
   const fetchStats = useCallback(async () => {
     try {
@@ -44,7 +47,6 @@ export default function Home() {
           setEvents((prev) => [...prev, data.event]);
           fetchStats();
         }
-        // data.ignored === true means event was filtered (duplicate/cooldown/low confidence)
       }
     } catch (err) {
       console.error("Failed to send transcript:", err);
@@ -78,8 +80,16 @@ export default function Home() {
         )}
       </div>
 
-      <div className="mb-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
         <StatsCard stats={stats} />
+        <ObsCard
+          status={obs.status}
+          onConnect={obs.connect}
+          onDisconnect={obs.disconnect}
+          onStartReplay={obs.startReplay}
+          onSaveReplay={obs.saveReplay}
+          loading={obs.loading}
+        />
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
