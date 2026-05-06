@@ -36,6 +36,19 @@ export const sessionsRoute: FastifyPluginAsync = async (app) => {
       console.log(
         `[Session] Report saved: ${report.sessionId} — ${report.totalReactions} reactions, ${report.clipsSaved} clips`
       );
+
+      // Also save report inside session folder if available
+      if (report.sessionFolderPath) {
+        try {
+          const folderReportPath = join(report.sessionFolderPath, "session-report.json");
+          await writeFile(folderReportPath, JSON.stringify(report, null, 2));
+          console.log(`[Session] Report also saved to: ${folderReportPath}`);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.error(`[Session] Failed to save report to session folder: ${msg}`);
+        }
+      }
+
       return report;
     }
   );

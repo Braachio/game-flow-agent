@@ -60,6 +60,7 @@ export function SessionSummaryCard({ events, sessionId, onDismiss, onSave }: Ses
 
   const total = events.length;
   const clipsSaved = events.filter((e) => e.clipSaved === true).length;
+  const sessionFolderPath = events.find((e) => e.sessionFolderPath)?.sessionFolderPath;
 
   const breakdown: Record<string, number> = {
     excitement: 0,
@@ -97,6 +98,7 @@ export function SessionSummaryCard({ events, sessionId, onDismiss, onSave }: Ses
       byCategory: breakdown as Record<ReactionCategory, number>,
       interpretation,
       memo: memo.trim() || undefined,
+      sessionFolderPath,
     };
 
     onSave(report);
@@ -146,6 +148,12 @@ export function SessionSummaryCard({ events, sessionId, onDismiss, onSave }: Ses
             </span>
           ))}
       </div>
+
+      {sessionFolderPath && (
+        <p className="text-xs text-gray-500 mb-2 truncate" title={sessionFolderPath}>
+          Clips folder: {sessionFolderPath}
+        </p>
+      )}
 
       <p className="text-sm text-gray-300 leading-relaxed mb-4">{interpretation}</p>
 

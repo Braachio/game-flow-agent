@@ -23,6 +23,10 @@ export interface VoiceEvent {
   originalFilePath?: string;
   renamedFilePath?: string;
   clipRenameError?: string;
+  clipMoveError?: string;
+  sessionFolderPath?: string;
+  action?: AgentAction;
+  actionReason?: string;
   feedback?: UserFeedback;
   metadata?: Record<string, unknown>;
 }
@@ -40,6 +44,21 @@ export interface VoiceEventResponse {
 export interface VoiceEventIgnoredResponse {
   ignored: true;
   reason: "duplicate" | "cooldown" | "low_confidence";
+}
+
+export type VoiceIntent = "START_SESSION" | "END_SESSION";
+
+export type AgentAction =
+  | "START_SESSION"
+  | "END_SESSION"
+  | "SAVE_CLIP"
+  | "TAG_EVENT"
+  | "IGNORE";
+
+export interface VoiceCommandResponse {
+  command: true;
+  intent: VoiceIntent;
+  transcript: string;
 }
 
 export interface HealthResponse {
@@ -105,4 +124,5 @@ export interface SessionReport {
   byCategory: Record<ReactionCategory, number>;
   interpretation: string;
   memo?: string;
+  sessionFolderPath?: string;
 }

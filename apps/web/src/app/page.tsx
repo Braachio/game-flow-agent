@@ -149,15 +149,19 @@ export default function Home() {
     lang: "ko-KR",
   });
 
-  const handleStart = useCallback(() => {
+  const resetSession = useCallback(() => {
     sessionIdRef.current = generateSessionId();
     setSessionSummary(null);
     setEvents([]);
     setTranscripts([]);
     setLastEvent(null);
     setLatencyMs(null);
+  }, []);
+
+  const handleStart = useCallback(() => {
+    resetSession();
     start();
-  }, [start]);
+  }, [resetSession, start]);
 
   const handleEndSession = useCallback(() => {
     stop();
@@ -165,9 +169,10 @@ export default function Home() {
   }, [stop, events]);
 
   // Keep ref in sync for voice command callbacks
+  // Voice start uses resetSession (recognition already running), not handleStart
   useEffect(() => {
-    voiceSessionHandlersRef.current = { start: handleStart, end: handleEndSession };
-  }, [handleStart, handleEndSession]);
+    voiceSessionHandlersRef.current = { start: resetSession, end: handleEndSession };
+  }, [resetSession, handleEndSession]);
 
   const handleSaveReport = useCallback(async (report: SessionReport) => {
     try {

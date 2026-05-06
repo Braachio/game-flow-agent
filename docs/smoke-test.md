@@ -78,7 +78,21 @@ npm run dev:web     # should open: http://localhost:3002
 | 7.7 | Click "Save Report" | "Saved!" confirmation appears |
 | 7.8 | `curl http://localhost:3001/sessions/reports` | Report with memo present in JSON |
 
-## 8. Failure Case Tests
+## 8. Session Folder Test
+
+| Step | Action | Expected |
+|------|--------|----------|
+| 8.1 | Set `OBS_RECORDING_DIR` in `.env` | Directory path configured |
+| 8.2 | Start session (voice or button) | Agent log: `[Session] Created session folder: .../session_YYYYMMDD_HHMMSS_xxxxxx` |
+| 8.3 | Trigger clip (e.g., "와 대박") | Agent log: `[ClipFile] Moved clip to session folder: ...` |
+| 8.4 | Check session folder on disk | Clip file present with correct name |
+| 8.5 | End session + Save Report | `session-report.json` saved inside session folder |
+| 8.6 | Check EventLogPanel | Shows `session_YYYYMMDD_HHMMSS_xxx/filename.mkv` |
+| 8.7 | Check SessionSummaryCard | Shows "Clips folder: ..." path |
+| 8.8 | Unset `OBS_RECORDING_DIR`, start session | No folder created, clips stay in place (no crash) |
+| 8.9 | Session folder creation fails (read-only dir) | clipSaved: true, session continues, error logged |
+
+## 9. Failure Case Tests
 
 | Step | Action | Expected |
 |------|--------|----------|
@@ -89,7 +103,7 @@ npm run dev:web     # should open: http://localhost:3002
 | 8.5 | Set invalid OBS password, click Connect | Error: "OBS WebSocket requires a password..." |
 | 8.6 | Stop agent, try from dashboard | Fetch fails gracefully, no crash |
 
-## 9. Expected Results Summary
+## 10. Expected Results Summary
 
 | Feature | Pass Criteria |
 |---------|--------------|
@@ -100,8 +114,9 @@ npm run dev:web     # should open: http://localhost:3002
 | OBS connect | Green status when OBS running + correct password |
 | Replay save | SaveReplayBuffer succeeds, file appears |
 | Clip rename | File renamed with timestamp_category_transcript format |
-| Session summary | Correct counts, interpretation generated |
-| Reflection memo | Persisted in session-reports.json |
+| Session folder | Clips organized into session_YYYYMMDD_HHMMSS_id/ folder |
+| Session summary | Correct counts, interpretation generated, folder path shown |
+| Reflection memo | Persisted in session-reports.json and session folder |
 | Error handling | No crashes on OBS disconnect, missing dir, bad input |
 
 ## Quick Full Run (2 minutes)
@@ -118,12 +133,13 @@ npm run dev:web
 2. Demo Mode ON
 3. Connect OBS → Start Replay Buffer
 4. Start Session
-5. Click "와 대박" → verify clip saved + filename
-6. Click "아 망했다" → verify no clip
-7. Click "나이스" → verify excitement
-8. End Session → verify summary
+5. Click "와 대박" → verify clip saved + filename in session folder
+6. Click "아 망했다" → verify TAG_EVENT, no clip
+7. Click "나이스" → verify SAVE_CLIP
+8. End Session → verify summary shows session folder path
 9. Write memo → Save Report
 10. curl http://localhost:3001/sessions/reports → verify JSON
+11. Check session folder on disk → clip files + session-report.json present
 ```
 
-All 10 steps should complete without errors.
+All 11 steps should complete without errors.

@@ -21,6 +21,8 @@ interface EventInput {
   category: ReactionCategory;
   confidence: number;
   matchedKeywords: string[];
+  action?: import("@likelion/shared").AgentAction;
+  actionReason?: string;
 }
 
 class EventRepository {
@@ -66,6 +68,8 @@ class EventRepository {
       category: input.category,
       confidence: input.confidence,
       matchedKeywords: input.matchedKeywords,
+      action: input.action,
+      actionReason: input.actionReason,
     };
     this.events.push(event);
     await writeFile(EVENTS_FILE, JSON.stringify(this.events, null, 2));

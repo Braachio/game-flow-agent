@@ -12,6 +12,7 @@ import { obsService } from "../services/obs.service.js";
 import { renameClipForEvent } from "../services/clip-file.service.js";
 import { detectIntent } from "../services/intent-detector.js";
 import { sessionState } from "../services/session-state.js";
+import { decideAction } from "../services/action-decision.service.js";
 
 export const voiceRoute: FastifyPluginAsync = async (app) => {
   app.post<{ Body: VoiceEventRequest }>(
@@ -24,38 +25,61 @@ export const voiceRoute: FastifyPluginAsync = async (app) => {
         throw new Error("transcript is required");
       }
 
-      // Check for voice command intents before classification
+      // Detect voice command intent
       const intentResult = detectIntent(transcript);
-      if (intentResult.detected && intentResult.intent) {
-        if (intentResult.intent === "START_SESSION" && sessionState.isActive()) {
-          console.log(`[VoiceCommand] Ignored (session already active)`);
-          reply.status(200);
-          return { ignored: true, reason: "low_confidence" };
-        }
-        if (intentResult.intent === "END_SESSION" && !sessionState.isActive()) {
-          console.log(`[VoiceCommand] Ignored (no active session)`);
-          reply.status(200);
-          return { ignored: true, reason: "low_confidence" };
-        }
 
-        if (intentResult.intent === "START_SESSION") {
-          const newSessionId = sessionId || `session_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-          sessionState.start(newSessionId);
-          console.log(`[VoiceCommand] Session started`);
-        } else {
-          sessionState.end();
-          console.log(`[VoiceCommand] Session ended`);
-        }
-
-        reply.status(200);
-        return { command: true, intent: intentResult.intent, transcript };
-      }
-
+      // Classify transcript
       eventRepository.incrementTranscriptCount();
-
       const classification = classify(transcript);
 
-      // Check guards (duplicate, cooldown, confidence)
+      // If intent detected, skip normal classification flow
+      if (intentResult.detected && intentResult.intent) {
+        const decision = decideAction({
+          transcript,
+          intent: intentResult.intent,
+          category: classification.category,
+          confidence: intentResult.confidence,
+          sessionActive: sessionState.isActive(),
+        });
+
+        console.log(`[ActionDecision] action=${decision.action} reason=${decision.actionReason}`);
+
+        if (decision.action === "START_SESSION") {
+          const newSessionId = sessionId || `session_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+          await sessionState.start(newSessionId);
+          console.log(`[VoiceCommand] Session started`);
+          reply.status(200);
+          return { command: true, intent: intentResult.intent, transcript };
+        }
+        if (decision.action === "END_SESSION") {
+          sessionState.end();
+          console.log(`[VoiceCommand] Session ended`);
+          reply.status(200);
+          return { command: true, intent: intentResult.intent, transcript };
+        }
+        // IGNORE for invalid session commands
+        console.log(`[VoiceCommand] Ignored (${decision.actionReason})`);
+        reply.status(200);
+        return { ignored: true, reason: "low_confidence" };
+      }
+
+      // Action decision for non-command transcripts
+      const decision = decideAction({
+        transcript,
+        category: classification.category,
+        confidence: classification.confidence,
+        sessionActive: sessionState.isActive(),
+      });
+
+      console.log(`[ActionDecision] action=${decision.action} reason=${decision.actionReason}`);
+
+      if (decision.action === "IGNORE") {
+        eventRepository.incrementIgnoredCount();
+        reply.status(200);
+        return { ignored: true, reason: "low_confidence" };
+      }
+
+      // Check guards (duplicate, cooldown)
       const guard = eventGuard.check(
         transcript,
         classification.category,
@@ -72,43 +96,51 @@ export const voiceRoute: FastifyPluginAsync = async (app) => {
         `[Voice] ACCEPTED: "${transcript}" → ${classification.category} (${(classification.confidence * 100).toFixed(0)}%)`
       );
 
-      // Save event
+      // Save event with action metadata
       const event = await eventRepository.save({
         transcript,
         sessionId,
         timestamp: timestamp || new Date().toISOString(),
         ...classification,
+        action: decision.action,
+        actionReason: decision.actionReason,
       });
 
-      // Attempt OBS clip for high-value categories
-      const clipResult = await obsService.triggerClipForEvent(event);
+      // Only trigger OBS clip when action is SAVE_CLIP
+      if (decision.action === "SAVE_CLIP") {
+        const clipResult = await obsService.triggerClipForEvent(event);
 
-      // Update event with clip result
-      if (clipResult.obsTriggeredAt) {
-        event.clipSaved = clipResult.clipSaved;
-        event.obsTriggeredAt = clipResult.obsTriggeredAt;
-        if (clipResult.obsError) {
-          event.obsError = clipResult.obsError;
+        if (clipResult.obsTriggeredAt) {
+          event.clipSaved = clipResult.clipSaved;
+          event.obsTriggeredAt = clipResult.obsTriggeredAt;
+          if (clipResult.obsError) {
+            event.obsError = clipResult.obsError;
+          }
+
+          if (clipResult.clipSaved) {
+            const fileResult = await renameClipForEvent(event, sessionState.getFolderPath());
+            if (fileResult.clipFilename) {
+              event.clipFilename = fileResult.clipFilename;
+            }
+            if (fileResult.originalFilePath) {
+              event.originalFilePath = fileResult.originalFilePath;
+            }
+            if (fileResult.renamedFilePath) {
+              event.renamedFilePath = fileResult.renamedFilePath;
+            }
+            if (fileResult.sessionFolderPath) {
+              event.sessionFolderPath = fileResult.sessionFolderPath;
+            }
+            if (fileResult.clipRenameError) {
+              event.clipRenameError = fileResult.clipRenameError;
+            }
+            if (fileResult.clipMoveError) {
+              event.clipMoveError = fileResult.clipMoveError;
+            }
+          }
+
+          await eventRepository.update(event);
         }
-
-        // If clip was saved, attempt to rename the file
-        if (clipResult.clipSaved) {
-          const fileResult = await renameClipForEvent(event);
-          if (fileResult.clipFilename) {
-            event.clipFilename = fileResult.clipFilename;
-          }
-          if (fileResult.originalFilePath) {
-            event.originalFilePath = fileResult.originalFilePath;
-          }
-          if (fileResult.renamedFilePath) {
-            event.renamedFilePath = fileResult.renamedFilePath;
-          }
-          if (fileResult.clipRenameError) {
-            event.clipRenameError = fileResult.clipRenameError;
-          }
-        }
-
-        await eventRepository.update(event);
       }
 
       return { event };

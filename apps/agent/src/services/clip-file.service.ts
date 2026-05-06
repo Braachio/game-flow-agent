@@ -11,6 +11,8 @@ export interface ClipFileResult {
   originalFilePath?: string;
   renamedFilePath?: string;
   clipRenameError?: string;
+  clipMoveError?: string;
+  sessionFolderPath?: string;
 }
 
 function sanitizeTranscript(transcript: string): string {
@@ -60,7 +62,10 @@ async function findNewestClip(dir: string): Promise<string | null> {
   return newest?.path ?? null;
 }
 
-export async function renameClipForEvent(event: VoiceEvent): Promise<ClipFileResult> {
+export async function renameClipForEvent(
+  event: VoiceEvent,
+  sessionFolderPath?: string | null,
+): Promise<ClipFileResult> {
   const recordingDir = process.env.OBS_RECORDING_DIR;
   const renameEnabled = process.env.OBS_CLIP_RENAME_ENABLED !== "false";
 
@@ -90,18 +95,45 @@ export async function renameClipForEvent(event: VoiceEvent): Promise<ClipFileRes
 
   const ext = extname(clipPath).toLowerCase();
   const newFilename = buildFilename(event, ext);
-  const newPath = join(recordingDir, newFilename);
+
+  // Determine target directory: session folder if available, else recording dir
+  const targetDir = sessionFolderPath || recordingDir;
+  const newPath = join(targetDir, newFilename);
 
   try {
     await rename(clipPath, newPath);
-    console.log(`[ClipFile] Renamed clip: ${basename(clipPath)} → ${newFilename}`);
+    const destination = sessionFolderPath ? "session folder" : "recording dir";
+    console.log(`[ClipFile] Moved clip to ${destination}: ${basename(clipPath)} → ${newFilename}`);
     return {
       clipFilename: newFilename,
       originalFilePath: clipPath,
       renamedFilePath: newPath,
+      sessionFolderPath: sessionFolderPath || undefined,
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
+    // If moving to session folder failed, try just renaming in place
+    if (sessionFolderPath) {
+      console.error(`[ClipFile] Move to session folder failed: ${msg}, falling back to rename in place`);
+      const fallbackPath = join(recordingDir, newFilename);
+      try {
+        await rename(clipPath, fallbackPath);
+        return {
+          clipFilename: newFilename,
+          originalFilePath: clipPath,
+          renamedFilePath: fallbackPath,
+          clipMoveError: msg,
+        };
+      } catch (fallbackErr) {
+        const fallbackMsg = fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr);
+        console.error(`[ClipFile] Fallback rename also failed: ${fallbackMsg}`);
+        return {
+          originalFilePath: clipPath,
+          clipRenameError: fallbackMsg,
+          clipMoveError: msg,
+        };
+      }
+    }
     console.error(`[ClipFile] Rename failed: ${msg}`);
     return {
       originalFilePath: clipPath,
