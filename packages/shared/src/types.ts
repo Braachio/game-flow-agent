@@ -121,6 +121,15 @@ export interface FalseNegativeEvent {
   note?: string;
 }
 
+export interface SessionClip {
+  filename: string;
+  path: string;
+  category: ReactionCategory;
+  transcript: string;
+  detectedAt: string;
+  action: AgentAction;
+}
+
 export interface SessionReport {
   sessionId: string;
   startedAt: string;
@@ -131,4 +140,5 @@ export interface SessionReport {
   interpretation: string;
   memo?: string;
   sessionFolderPath?: string;
+  clips?: SessionClip[];
 }

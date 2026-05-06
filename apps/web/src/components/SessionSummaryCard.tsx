@@ -1,5 +1,14 @@
 import { useState } from "react";
-import type { VoiceEvent, ReactionCategory, SessionReport } from "@likelion/shared";
+import type { VoiceEvent, ReactionCategory, SessionReport, SessionClip } from "@likelion/shared";
+
+const categoryColors: Record<string, string> = {
+  excitement: "text-yellow-400",
+  frustration: "text-red-400",
+  surprise: "text-purple-400",
+  victory: "text-green-400",
+  defeat: "text-gray-400",
+  neutral: "text-gray-500",
+};
 
 interface SessionSummaryCardProps {
   events: VoiceEvent[];
@@ -59,8 +68,18 @@ export function SessionSummaryCard({ events, sessionId, onDismiss, onSave }: Ses
   const [saved, setSaved] = useState(false);
 
   const total = events.length;
-  const clipsSaved = events.filter((e) => e.clipSaved === true).length;
+  const clippedEvents = events.filter((e) => e.clipSaved === true);
+  const clipsSaved = clippedEvents.length;
   const sessionFolderPath = events.find((e) => e.sessionFolderPath)?.sessionFolderPath;
+
+  const clips: SessionClip[] = clippedEvents.map((e) => ({
+    filename: e.clipFilename || "unknown",
+    path: e.renamedFilePath || e.originalFilePath || "",
+    category: e.category,
+    transcript: e.transcript,
+    detectedAt: e.timestamp,
+    action: e.action || "SAVE_CLIP",
+  }));
 
   const breakdown: Record<string, number> = {
     excitement: 0,
@@ -99,6 +118,7 @@ export function SessionSummaryCard({ events, sessionId, onDismiss, onSave }: Ses
       interpretation,
       memo: memo.trim() || undefined,
       sessionFolderPath,
+      clips: clips.length > 0 ? clips : undefined,
     };
 
     onSave(report);
@@ -156,6 +176,27 @@ export function SessionSummaryCard({ events, sessionId, onDismiss, onSave }: Ses
       )}
 
       <p className="text-sm text-gray-300 leading-relaxed mb-4">{interpretation}</p>
+
+      {clips.length > 0 && (
+        <div className="mb-4">
+          <h3 className="text-sm font-semibold text-gray-400 mb-2">Clips ({clips.length})</h3>
+          <div className="space-y-1 max-h-40 overflow-y-auto">
+            {clips.map((clip, i) => (
+              <div key={i} className="bg-gray-700 rounded px-3 py-1.5 text-xs flex items-center gap-2">
+                <span className={`font-medium ${categoryColors[clip.category] || "text-gray-400"}`}>
+                  {clip.category}
+                </span>
+                <span className="text-gray-300 truncate flex-1" title={clip.transcript}>
+                  {clip.transcript}
+                </span>
+                <span className="text-blue-400 truncate max-w-[200px]" title={clip.path}>
+                  {clip.filename}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="border-t border-gray-700 pt-4">
         <label className="block text-sm text-gray-400 mb-2">
