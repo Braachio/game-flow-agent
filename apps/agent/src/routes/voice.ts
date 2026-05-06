@@ -3,22 +3,52 @@ import type {
   VoiceEventRequest,
   VoiceEventResponse,
   VoiceEventIgnoredResponse,
+  VoiceCommandResponse,
 } from "@likelion/shared";
 import { classify } from "../services/classifier.js";
 import { eventRepository } from "../services/event-repository.js";
 import { eventGuard } from "../services/event-guard.js";
 import { obsService } from "../services/obs.service.js";
 import { renameClipForEvent } from "../services/clip-file.service.js";
+import { detectIntent } from "../services/intent-detector.js";
+import { sessionState } from "../services/session-state.js";
 
 export const voiceRoute: FastifyPluginAsync = async (app) => {
   app.post<{ Body: VoiceEventRequest }>(
     "/events/voice",
-    async (request, reply): Promise<VoiceEventResponse | VoiceEventIgnoredResponse> => {
+    async (request, reply): Promise<VoiceEventResponse | VoiceEventIgnoredResponse | VoiceCommandResponse> => {
       const { transcript, sessionId, timestamp } = request.body;
 
       if (!transcript || typeof transcript !== "string") {
         reply.status(400);
         throw new Error("transcript is required");
+      }
+
+      // Check for voice command intents before classification
+      const intentResult = detectIntent(transcript);
+      if (intentResult.detected && intentResult.intent) {
+        if (intentResult.intent === "START_SESSION" && sessionState.isActive()) {
+          console.log(`[VoiceCommand] Ignored (session already active)`);
+          reply.status(200);
+          return { ignored: true, reason: "low_confidence" };
+        }
+        if (intentResult.intent === "END_SESSION" && !sessionState.isActive()) {
+          console.log(`[VoiceCommand] Ignored (no active session)`);
+          reply.status(200);
+          return { ignored: true, reason: "low_confidence" };
+        }
+
+        if (intentResult.intent === "START_SESSION") {
+          const newSessionId = sessionId || `session_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+          sessionState.start(newSessionId);
+          console.log(`[VoiceCommand] Session started`);
+        } else {
+          sessionState.end();
+          console.log(`[VoiceCommand] Session ended`);
+        }
+
+        reply.status(200);
+        return { command: true, intent: intentResult.intent, transcript };
       }
 
       eventRepository.incrementTranscriptCount();

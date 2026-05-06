@@ -120,6 +120,28 @@ export const INTENSITY_WORDS = [
   "진짜", "개", "존나", "ㄹㅇ", "레알", "미친",
 ];
 
+/** Voice command intent phrases */
+import type { VoiceIntent } from "./types.js";
+
+export interface IntentRule {
+  intent: VoiceIntent;
+  phrases: string[];
+}
+
+export const INTENT_RULES: IntentRule[] = [
+  {
+    intent: "START_SESSION",
+    phrases: ["세션 시작", "게임 시작", "녹화 시작", "시작할게", "시작해"],
+  },
+  {
+    intent: "END_SESSION",
+    phrases: ["세션 종료", "게임 종료", "끝낼게", "종료할게", "녹화 끝", "그만할게"],
+  },
+];
+
+/** Minimum confidence for voice commands */
+export const INTENT_CONFIDENCE_THRESHOLD = 0.8;
+
 /** Cooldown durations in milliseconds per category */
 export const COOLDOWN_MS: Record<ReactionCategory, number> = {
   excitement: 5000,

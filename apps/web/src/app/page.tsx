@@ -32,7 +32,9 @@ export default function Home() {
   const [detecting, setDetecting] = useState(false);
   const [latencyMs, setLatencyMs] = useState<number | null>(null);
   const [sessionSummary, setSessionSummary] = useState<VoiceEvent[] | null>(null);
+  const [voiceCommandFeedback, setVoiceCommandFeedback] = useState<string | null>(null);
   const sessionIdRef = useRef<string | null>(null);
+  const voiceSessionHandlersRef = useRef<{ start: () => void; end: () => void }>({ start: () => {}, end: () => {} });
   const obs = useObs();
   const playClipSound = useClipSound();
 
@@ -76,7 +78,17 @@ export default function Home() {
         const elapsed = Math.round(performance.now() - speechStartTime);
         setLatencyMs(elapsed);
 
-        if (data.event) {
+        if (data.command) {
+          // Voice command detected — trigger session control
+          if (data.intent === "START_SESSION") {
+            setVoiceCommandFeedback("Session started by voice");
+            voiceSessionHandlersRef.current.start();
+          } else if (data.intent === "END_SESSION") {
+            setVoiceCommandFeedback("Session ended by voice");
+            voiceSessionHandlersRef.current.end();
+          }
+          setTimeout(() => setVoiceCommandFeedback(null), 3000);
+        } else if (data.event) {
           setEvents((prev) => [...prev, data.event]);
           setLastEvent(data.event);
           console.log(`[Latency] speech→event: ${elapsed}ms`);
@@ -151,6 +163,11 @@ export default function Home() {
     stop();
     setSessionSummary([...events]);
   }, [stop, events]);
+
+  // Keep ref in sync for voice command callbacks
+  useEffect(() => {
+    voiceSessionHandlersRef.current = { start: handleStart, end: handleEndSession };
+  }, [handleStart, handleEndSession]);
 
   const handleSaveReport = useCallback(async (report: SessionReport) => {
     try {
@@ -229,6 +246,12 @@ export default function Home() {
           </span>
         )}
       </div>
+
+      {voiceCommandFeedback && (
+        <div className="mb-4 px-4 py-2 bg-indigo-600/80 text-white rounded-lg text-center font-medium animate-pulse">
+          {voiceCommandFeedback}
+        </div>
+      )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
         <StatsCard stats={stats} />
