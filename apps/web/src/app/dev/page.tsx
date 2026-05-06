@@ -173,7 +173,7 @@ export default function Home() {
     } catch {}
   }, [fetchMetrics]);
 
-  const { isListening, interimText, start, stop } = useSpeechRecognition({
+  const { isListening, interimText, error: speechError, start, stop } = useSpeechRecognition({
     onResult: sendTranscript,
     onInterim: handleInterim,
     lang: "ko-KR",
@@ -226,8 +226,8 @@ export default function Home() {
               <span className={`w-2 h-2 rounded-full ${obs.status?.connected ? "bg-green-500" : "bg-gray-600"}`} />
               <span>OBS</span>
             </div>
-            <div className="flex items-center gap-2 text-xs text-gray-500">
-              <span className={`w-2 h-2 rounded-full ${isListening ? "bg-blue-500 animate-pulse-ring" : "bg-gray-600"}`} />
+            <div className="flex items-center gap-2 text-xs text-gray-500" title={speechError || undefined}>
+              <span className={`w-2 h-2 rounded-full ${speechError ? "bg-red-500" : isListening ? "bg-blue-500 animate-pulse-ring" : "bg-gray-600"}`} />
               <span>Mic</span>
             </div>
             <Link href="/" className="text-xs text-gray-500 hover:text-gray-300 transition-colors">

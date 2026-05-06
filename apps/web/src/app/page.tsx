@@ -98,7 +98,7 @@ export default function Home() {
 
   const handleInterim = useCallback((_t: string) => {}, []);
 
-  const { isListening, interimText, start, stop } = useSpeechRecognition({
+  const { isListening, interimText, error: speechError, start, stop } = useSpeechRecognition({
     onResult: sendTranscript,
     onInterim: handleInterim,
     lang: "ko-KR",
@@ -258,8 +258,15 @@ export default function Home() {
             </p>
           )}
 
+          {/* Speech error */}
+          {speechError && (
+            <p className="text-red-400/80 text-xs animate-fade-in">
+              {speechError}
+            </p>
+          )}
+
           {/* Last transcript */}
-          {lastEvent && !interimText && (
+          {lastEvent && !interimText && !speechError && (
             <p className="text-gray-500 text-sm max-w-sm text-center truncate">
               &quot;{lastEvent.transcript}&quot;
             </p>
