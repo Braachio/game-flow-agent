@@ -26,20 +26,20 @@ export function DemoBanner({
 }: DemoBannerProps) {
   let statusText = "Idle";
   let statusColor = "text-gray-400";
-  let bgColor = "bg-gray-800";
+  let bgColor = "bg-gray-900 border border-gray-800";
 
   if (detecting) {
     statusText = "Detecting...";
     statusColor = "text-yellow-300 animate-pulse";
-    bgColor = "bg-gray-800 border border-yellow-700";
+    bgColor = "bg-gray-900 border border-yellow-700";
   } else if (isListening && interimText) {
     statusText = `"${interimText}"`;
     statusColor = "text-blue-300";
-    bgColor = "bg-gray-800 border border-blue-800";
+    bgColor = "bg-gray-900 border border-blue-800";
   } else if (isListening && !lastEvent) {
     statusText = "Listening...";
     statusColor = "text-green-400";
-    bgColor = "bg-gray-800 border border-green-800";
+    bgColor = "bg-gray-900 border border-green-800";
   } else if (lastEvent) {
     const emoji = categoryEmoji[lastEvent.category] || "";
     statusText = `${emoji} Detected: ${lastEvent.category}`;
@@ -57,7 +57,7 @@ export function DemoBanner({
   }
 
   return (
-    <div className={`${bgColor} rounded-lg p-6 text-center transition-all duration-300`}>
+    <div className={`${bgColor} rounded-xl p-6 text-center transition-all duration-300`}>
       <p className={`text-2xl font-bold ${statusColor}`}>{statusText}</p>
       <div className="flex justify-center items-center gap-4 mt-2">
         {lastEvent && !detecting && (

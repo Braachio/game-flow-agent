@@ -11,8 +11,8 @@ const TEST_PHRASES = [
 
 export function TestButtons({ onSend }: TestButtonsProps) {
   return (
-    <div className="bg-gray-800 rounded-lg p-4">
-      <h2 className="text-xl font-semibold mb-3">Manual Test</h2>
+    <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+      <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider mb-3">Manual Test</h2>
       <div className="flex flex-wrap gap-2">
         {TEST_PHRASES.map(({ label, transcript }) => (
           <button

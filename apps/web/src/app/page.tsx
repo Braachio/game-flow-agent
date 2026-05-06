@@ -4,59 +4,35 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
 import { useObs } from "@/hooks/useObs";
 import { useClipSound } from "@/hooks/useClipSound";
-import { DemoBanner } from "@/components/DemoBanner";
-import { Timeline } from "@/components/Timeline";
-import { TestButtons } from "@/components/TestButtons";
-import { TranscriptPanel } from "@/components/TranscriptPanel";
-import { EventLogPanel } from "@/components/EventLogPanel";
-import { StatsCard } from "@/components/StatsCard";
-import { ObsCard } from "@/components/ObsCard";
-import { SettingsPanel } from "@/components/SettingsPanel";
-import { EvaluationCard } from "@/components/EvaluationCard";
-import { SessionSummaryCard } from "@/components/SessionSummaryCard";
-import type { VoiceEvent, EventStats, EvaluationMetrics, UserFeedback, SessionReport } from "@likelion/shared";
+import Link from "next/link";
+import type { VoiceEvent, SessionReport } from "@likelion/shared";
 
 const AGENT_URL = process.env.NEXT_PUBLIC_AGENT_URL || "http://localhost:3001";
 
+const CATEGORY_DISPLAY: Record<string, { label: string; color: string; bg: string }> = {
+  excitement: { label: "흥분", color: "text-yellow-400", bg: "bg-yellow-500/10 border-yellow-500/30" },
+  frustration: { label: "짜증", color: "text-red-400", bg: "bg-red-500/10 border-red-500/30" },
+  surprise: { label: "놀람", color: "text-purple-400", bg: "bg-purple-500/10 border-purple-500/30" },
+  victory: { label: "승리", color: "text-green-400", bg: "bg-green-500/10 border-green-500/30" },
+  defeat: { label: "패배", color: "text-gray-400", bg: "bg-gray-500/10 border-gray-500/30" },
+  neutral: { label: "일반", color: "text-gray-500", bg: "bg-gray-500/10 border-gray-500/30" },
+};
+
 export default function Home() {
   const [events, setEvents] = useState<VoiceEvent[]>([]);
-  const [transcripts, setTranscripts] = useState<string[]>([]);
-  const [stats, setStats] = useState<EventStats | null>(null);
-  const [metrics, setMetrics] = useState<EvaluationMetrics | null>(null);
-  const [demoMode, setDemoMode] = useState(false);
+  const eventsRef = useRef<VoiceEvent[]>([]);
+  eventsRef.current = events;
+  const [sessionActive, setSessionActive] = useState(false);
   const [lastEvent, setLastEvent] = useState<VoiceEvent | null>(null);
   const [detecting, setDetecting] = useState(false);
-  const [latencyMs, setLatencyMs] = useState<number | null>(null);
-  const [sessionActive, setSessionActive] = useState(false);
+  const [voiceFeedback, setVoiceFeedback] = useState<string | null>(null);
+  const [clipCount, setClipCount] = useState(0);
   const [sessionSummary, setSessionSummary] = useState<VoiceEvent[] | null>(null);
-  const [voiceCommandFeedback, setVoiceCommandFeedback] = useState<string | null>(null);
   const sessionIdRef = useRef<string | null>(null);
   const obs = useObs();
   const playClipSound = useClipSound();
 
-  const fetchStats = useCallback(async () => {
-    try {
-      const res = await fetch(`${AGENT_URL}/events/stats`);
-      if (res.ok) setStats(await res.json());
-    } catch {}
-  }, []);
-
-  const fetchMetrics = useCallback(async () => {
-    try {
-      const url = sessionIdRef.current
-        ? `${AGENT_URL}/events/evaluation?sessionId=${sessionIdRef.current}`
-        : `${AGENT_URL}/events/evaluation`;
-      const res = await fetch(url);
-      if (res.ok) setMetrics(await res.json());
-    } catch {}
-  }, []);
-
-  useEffect(() => {
-    fetchStats();
-    fetchMetrics();
-  }, [fetchStats, fetchMetrics]);
-
-  // --- Session control helpers ---
+  // --- Session control ---
 
   const startSession = useCallback(async (providedSessionId?: string) => {
     let sid = providedSessionId;
@@ -67,107 +43,58 @@ export default function Home() {
           const data = await res.json();
           sid = data.sessionId;
         }
-      } catch (err) {
-        console.error("Failed to start session on backend:", err);
-      }
+      } catch {}
     }
-    if (!sid) {
-      sid = `session_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-    }
+    if (!sid) sid = `session_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     sessionIdRef.current = sid;
     setSessionActive(true);
     setSessionSummary(null);
     setEvents([]);
-    setTranscripts([]);
+    setClipCount(0);
     setLastEvent(null);
-    setLatencyMs(null);
   }, []);
 
   const endSession = useCallback(() => {
     setSessionActive(false);
-    setSessionSummary([...events]);
-  }, [events]);
+    setSessionSummary([...eventsRef.current]);
+  }, []);
 
   // --- Transcript handling ---
 
-  const sendTranscript = useCallback(async (transcript: string, speechStartTime: number) => {
-    setTranscripts((prev) => [...prev, transcript]);
+  const sendTranscript = useCallback(async (transcript: string, _speechStartTime: number) => {
     setDetecting(true);
-
     try {
       const res = await fetch(`${AGENT_URL}/events/voice`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          transcript,
-          sessionId: sessionIdRef.current,
-        }),
+        body: JSON.stringify({ transcript, sessionId: sessionIdRef.current }),
       });
       if (res.ok) {
         const data = await res.json();
-        const elapsed = Math.round(performance.now() - speechStartTime);
-        setLatencyMs(elapsed);
-
         if (data.command) {
           if (data.intent === "START_SESSION" && data.sessionId) {
-            setVoiceCommandFeedback("Session started by voice");
+            setVoiceFeedback("세션 시작됨");
             startSession(data.sessionId);
           } else if (data.intent === "END_SESSION") {
-            setVoiceCommandFeedback("Session ended by voice");
+            setVoiceFeedback("세션 종료됨");
             endSession();
           }
-          setTimeout(() => setVoiceCommandFeedback(null), 3000);
+          setTimeout(() => setVoiceFeedback(null), 2500);
         } else if (data.event) {
           setEvents((prev) => [...prev, data.event]);
           setLastEvent(data.event);
-          console.log(`[Latency] speech→event: ${elapsed}ms`);
           if (data.event.clipSaved) {
+            setClipCount((c) => c + 1);
             playClipSound();
           }
         }
-        fetchStats();
-        fetchMetrics();
       }
-    } catch (err) {
-      console.error("Failed to send transcript:", err);
-    } finally {
+    } catch {} finally {
       setDetecting(false);
     }
-  }, [fetchStats, fetchMetrics, startSession, endSession, playClipSound]);
+  }, [startSession, endSession, playClipSound]);
 
-  const sendTestTranscript = useCallback((transcript: string) => {
-    sendTranscript(transcript, performance.now());
-  }, [sendTranscript]);
-
-  const handleInterim = useCallback((_transcript: string) => {}, []);
-
-  const handleFeedback = useCallback(async (eventId: string, feedback: UserFeedback) => {
-    try {
-      const res = await fetch(`${AGENT_URL}/events/feedback`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ eventId, feedback }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        setEvents((prev) =>
-          prev.map((e) => (e.id === eventId ? data.event : e))
-        );
-        fetchMetrics();
-      }
-    } catch {}
-  }, [fetchMetrics]);
-
-  const handleMissedMoment = useCallback(async () => {
-    try {
-      await fetch(`${AGENT_URL}/events/false-negative`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId: sessionIdRef.current }),
-      });
-      fetchMetrics();
-    } catch {}
-  }, [fetchMetrics]);
+  const handleInterim = useCallback((_t: string) => {}, []);
 
   const { isListening, interimText, start, stop } = useSpeechRecognition({
     onResult: sendTranscript,
@@ -175,164 +102,287 @@ export default function Home() {
     lang: "ko-KR",
   });
 
-  // --- Button handlers ---
-
-  const handleEnableVoice = useCallback(() => {
-    start();
-  }, [start]);
-
-  const handleDisableVoice = useCallback(() => {
-    stop();
-    if (sessionActive) {
-      endSession();
-    }
-  }, [stop, sessionActive, endSession]);
-
-  const handleStartSessionButton = useCallback(async () => {
+  const handleStartSession = useCallback(async () => {
     await startSession();
-    if (!isListening) {
-      start();
-    }
+    if (!isListening) start();
   }, [startSession, isListening, start]);
 
-  const handleEndSessionButton = useCallback(() => {
+  const handleEndSession = useCallback(() => {
     endSession();
   }, [endSession]);
 
-  const handleSaveReport = useCallback(async (report: SessionReport) => {
+  const handleEnableVoice = useCallback(() => { start(); }, [start]);
+  const handleDisableVoice = useCallback(() => {
+    stop();
+    if (sessionActive) endSession();
+  }, [stop, sessionActive, endSession]);
+
+  const handleSaveReport = useCallback(async () => {
+    if (!sessionSummary) return;
+    const clipped = sessionSummary.filter((e) => e.clipSaved);
+    const report: SessionReport = {
+      sessionId: sessionIdRef.current || "",
+      startedAt: sessionSummary[0]?.timestamp || new Date().toISOString(),
+      endedAt: sessionSummary[sessionSummary.length - 1]?.timestamp || new Date().toISOString(),
+      totalReactions: sessionSummary.length,
+      clipsSaved: clipped.length,
+      byCategory: {
+        excitement: sessionSummary.filter((e) => e.category === "excitement").length,
+        frustration: sessionSummary.filter((e) => e.category === "frustration").length,
+        surprise: sessionSummary.filter((e) => e.category === "surprise").length,
+        victory: sessionSummary.filter((e) => e.category === "victory").length,
+        defeat: sessionSummary.filter((e) => e.category === "defeat").length,
+        neutral: sessionSummary.filter((e) => e.category === "neutral").length,
+      },
+      interpretation: "",
+      sessionFolderPath: sessionSummary.find((e) => e.sessionFolderPath)?.sessionFolderPath,
+      clips: clipped.map((e) => ({
+        filename: e.clipFilename || "unknown",
+        path: e.renamedFilePath || "",
+        category: e.category,
+        transcript: e.transcript,
+        detectedAt: e.timestamp,
+        action: e.action || "SAVE_CLIP",
+      })),
+    };
     try {
       await fetch(`${AGENT_URL}/sessions/reports`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(report),
       });
-    } catch (err) {
-      console.error("Failed to save session report:", err);
+    } catch {}
+    setSessionSummary(null);
+  }, [sessionSummary]);
+
+  // Auto-connect OBS (only once on mount, non-blocking)
+  const obsConnectAttempted = useRef(false);
+  useEffect(() => {
+    if (!obsConnectAttempted.current) {
+      obsConnectAttempted.current = true;
+      obs.connect();
     }
-  }, []);
+  }, [obs.connect]);
+
+  // Derive state for the big visual indicator
+  const lastCat = lastEvent ? CATEGORY_DISPLAY[lastEvent.category] : null;
+  const recentClips = events.filter((e) => e.clipSaved).slice(-5).reverse();
 
   return (
-    <main className="max-w-6xl mx-auto p-6">
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-3xl font-bold">Voice Reactive Game Flow Agent</h1>
-        <label className="flex items-center gap-2 cursor-pointer">
-          <span className="text-sm text-gray-400">Demo Mode</span>
-          <input
-            type="checkbox"
-            checked={demoMode}
-            onChange={(e) => setDemoMode(e.target.checked)}
-            className="w-5 h-5 rounded bg-gray-700 border-gray-600"
-          />
-        </label>
-      </div>
+    <div className="min-h-screen flex flex-col bg-gray-950">
+      {/* Top bar */}
+      <header className="h-12 flex items-center justify-between px-5 border-b border-gray-800/50">
+        <div className="flex items-center gap-3">
+          <span className="text-sm font-semibold text-gray-300">GameFlow</span>
+          {sessionActive && (
+            <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" title="Recording" />
+          )}
+        </div>
+        <div className="flex items-center gap-4">
+          <div className="flex items-center gap-1.5 text-xs text-gray-500">
+            <span className={`w-1.5 h-1.5 rounded-full ${obs.status?.connected ? "bg-green-500" : "bg-gray-700"}`} />
+            OBS
+          </div>
+          <div className="flex items-center gap-1.5 text-xs text-gray-500">
+            <span className={`w-1.5 h-1.5 rounded-full ${isListening ? "bg-blue-500" : "bg-gray-700"}`} />
+            Mic
+          </div>
+          <Link href="/dev" className="text-xs text-gray-600 hover:text-gray-400 transition-colors">
+            Dev
+          </Link>
+        </div>
+      </header>
 
-      {demoMode && (
-        <div className="mb-6">
-          <DemoBanner
-            isListening={isListening}
-            lastEvent={lastEvent}
-            interimText={interimText}
-            detecting={detecting}
-            latencyMs={latencyMs}
-          />
+      {/* Main area */}
+      <main className="flex-1 flex flex-col items-center justify-center px-4 relative">
+        {/* Voice feedback toast */}
+        {voiceFeedback && (
+          <div className="absolute top-6 animate-fade-in">
+            <div className="px-5 py-2 bg-indigo-600 rounded-lg text-sm text-white font-medium shadow-lg">
+              {voiceFeedback}
+            </div>
+          </div>
+        )}
+
+        {/* Big center display */}
+        <div className="flex flex-col items-center gap-6 -mt-12">
+          {/* Status ring */}
+          <div className={`w-48 h-48 rounded-full flex items-center justify-center border-2 transition-all duration-500 ${
+            detecting
+              ? "border-yellow-500/50 bg-yellow-500/5"
+              : lastEvent && sessionActive
+                ? `${lastCat?.bg || "border-gray-700 bg-gray-900"} border`
+                : sessionActive
+                  ? "border-green-800/50 bg-green-900/10"
+                  : isListening
+                    ? "border-blue-800/50 bg-blue-900/10"
+                    : "border-gray-800 bg-gray-900/50"
+          }`}>
+            <div className="text-center">
+              {detecting ? (
+                <div className="text-yellow-400 text-lg animate-pulse">분석 중</div>
+              ) : lastEvent && sessionActive ? (
+                <>
+                  <div className={`text-3xl font-bold ${lastCat?.color}`}>
+                    {lastCat?.label}
+                  </div>
+                  <div className="text-xs text-gray-500 mt-1">
+                    {Math.round(lastEvent.confidence * 100)}%
+                  </div>
+                  {lastEvent.clipSaved && (
+                    <div className="text-xs text-green-400 mt-1">clip saved</div>
+                  )}
+                </>
+              ) : sessionActive ? (
+                <div className="text-green-400/60 text-sm">감지 중...</div>
+              ) : isListening ? (
+                <div className="text-blue-400/60 text-sm text-center leading-relaxed">
+                  &quot;세션 시작&quot;<br />대기 중
+                </div>
+              ) : (
+                <div className="text-gray-600 text-sm">대기</div>
+              )}
+            </div>
+          </div>
+
+          {/* Interim text */}
+          {interimText && (
+            <p className="text-blue-300/70 text-sm italic animate-fade-in">
+              &quot;{interimText}&quot;
+            </p>
+          )}
+
+          {/* Last transcript */}
+          {lastEvent && !interimText && (
+            <p className="text-gray-500 text-sm max-w-sm text-center truncate">
+              &quot;{lastEvent.transcript}&quot;
+            </p>
+          )}
+        </div>
+
+        {/* Clip counter (bottom-left) */}
+        {sessionActive && (
+          <div className="absolute bottom-24 left-6 text-left">
+            <div className="text-3xl font-bold text-white">{clipCount}</div>
+            <div className="text-xs text-gray-500">clips saved</div>
+          </div>
+        )}
+
+        {/* Recent clips (bottom-right) */}
+        {recentClips.length > 0 && sessionActive && (
+          <div className="absolute bottom-24 right-6 text-right">
+            <div className="space-y-1">
+              {recentClips.map((e) => (
+                <div key={e.id} className="text-xs text-gray-500">
+                  <span className={CATEGORY_DISPLAY[e.category]?.color}>{CATEGORY_DISPLAY[e.category]?.label}</span>
+                  {" "}
+                  <span className="text-gray-600">{e.transcript.slice(0, 15)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Event count */}
+        {sessionActive && (
+          <div className="absolute bottom-24 text-center">
+            <span className="text-xs text-gray-600">{events.length} reactions</span>
+          </div>
+        )}
+      </main>
+
+      {/* Session summary overlay */}
+      {sessionSummary && sessionSummary.length > 0 && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-gray-900 border border-gray-700 rounded-2xl p-6 max-w-md w-full animate-fade-in">
+            <h2 className="text-lg font-bold mb-4">Session Complete</h2>
+            <div className="grid grid-cols-3 gap-3 mb-4">
+              <div className="bg-gray-800 rounded-lg p-3 text-center">
+                <div className="text-2xl font-bold">{sessionSummary.length}</div>
+                <div className="text-xs text-gray-500">reactions</div>
+              </div>
+              <div className="bg-gray-800 rounded-lg p-3 text-center">
+                <div className="text-2xl font-bold text-green-400">
+                  {sessionSummary.filter((e) => e.clipSaved).length}
+                </div>
+                <div className="text-xs text-gray-500">clips</div>
+              </div>
+              <div className="bg-gray-800 rounded-lg p-3 text-center">
+                <div className="text-2xl font-bold text-blue-400">
+                  {sessionSummary.length > 0
+                    ? Math.round((sessionSummary.filter((e) => e.clipSaved).length / sessionSummary.length) * 100)
+                    : 0}%
+                </div>
+                <div className="text-xs text-gray-500">clip rate</div>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2 mb-4">
+              {Object.entries(
+                sessionSummary.reduce<Record<string, number>>((acc, e) => {
+                  acc[e.category] = (acc[e.category] || 0) + 1;
+                  return acc;
+                }, {})
+              )
+                .filter(([, c]) => c > 0)
+                .sort(([, a], [, b]) => b - a)
+                .map(([cat, count]) => (
+                  <span key={cat} className="text-xs bg-gray-800 px-2 py-1 rounded">
+                    <span className={CATEGORY_DISPLAY[cat]?.color}>{CATEGORY_DISPLAY[cat]?.label}</span>
+                    {" "}{count}
+                  </span>
+                ))}
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={handleSaveReport}
+                className="flex-1 px-4 py-2.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium transition-colors"
+              >
+                Save Report
+              </button>
+              <button
+                onClick={() => setSessionSummary(null)}
+                className="px-4 py-2.5 bg-gray-800 hover:bg-gray-700 rounded-lg text-sm text-gray-300 transition-colors"
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
-      {sessionSummary && (
-        <SessionSummaryCard
-          events={sessionSummary}
-          sessionId={sessionIdRef.current || ""}
-          onDismiss={() => setSessionSummary(null)}
-          onSave={handleSaveReport}
-        />
-      )}
-
-      <div className="mb-6 flex items-center gap-4">
-        {/* Voice Control toggle */}
-        <button
-          onClick={isListening ? handleDisableVoice : handleEnableVoice}
-          className={`px-5 py-3 rounded-lg font-semibold transition-colors ${
-            isListening
-              ? "bg-gray-600 hover:bg-gray-700 text-gray-200"
-              : "bg-blue-600 hover:bg-blue-700"
-          }`}
-        >
-          {isListening ? "Disable Voice" : "Enable Voice"}
-        </button>
-
-        {/* Session control */}
-        {!sessionActive ? (
+      {/* Bottom control bar */}
+      <div className="border-t border-gray-800/50 px-5 py-4">
+        <div className="max-w-lg mx-auto flex items-center justify-center gap-3">
+          {/* Voice toggle */}
           <button
-            onClick={handleStartSessionButton}
-            className="px-5 py-3 rounded-lg font-semibold bg-green-600 hover:bg-green-700 transition-colors"
+            onClick={isListening ? handleDisableVoice : handleEnableVoice}
+            className={`px-4 py-2.5 rounded-lg text-sm font-medium transition-all ${
+              isListening
+                ? "bg-blue-600/20 text-blue-400 border border-blue-800"
+                : "bg-gray-800 text-gray-400 border border-gray-700 hover:border-gray-600"
+            }`}
           >
-            Start Session
+            {isListening ? "Voice On" : "Enable Voice"}
           </button>
-        ) : (
-          <button
-            onClick={handleEndSessionButton}
-            className="px-5 py-3 rounded-lg font-semibold bg-red-600 hover:bg-red-700 transition-colors"
-          >
-            End Session
-          </button>
-        )}
 
-        {/* Status indicators */}
-        {isListening && !sessionActive && !interimText && !detecting && (
-          <span className="text-blue-400 text-sm animate-pulse">
-            Listening for &quot;세션 시작&quot;...
-          </span>
-        )}
-        {isListening && sessionActive && !interimText && !detecting && (
-          <span className="text-green-400 animate-pulse">Listening...</span>
-        )}
-        {interimText && (
-          <span className="text-blue-300 text-sm italic">&quot;{interimText}&quot;</span>
-        )}
-        {detecting && (
-          <span className="text-yellow-300 animate-pulse">Detecting...</span>
-        )}
-        {latencyMs !== null && !detecting && (
-          <span className="text-xs text-gray-500">{latencyMs}ms</span>
-        )}
-        {sessionIdRef.current && sessionActive && (
-          <span className="text-xs text-gray-600">
-            {sessionIdRef.current.slice(8, 21)}
-          </span>
-        )}
-      </div>
-
-      {voiceCommandFeedback && (
-        <div className="mb-4 px-4 py-2 bg-indigo-600/80 text-white rounded-lg text-center font-medium animate-pulse">
-          {voiceCommandFeedback}
+          {/* Session button */}
+          {!sessionActive ? (
+            <button
+              onClick={handleStartSession}
+              className="px-6 py-2.5 rounded-lg text-sm font-semibold bg-green-600 hover:bg-green-500 text-white transition-colors"
+            >
+              Start Session
+            </button>
+          ) : (
+            <button
+              onClick={handleEndSession}
+              className="px-6 py-2.5 rounded-lg text-sm font-semibold bg-red-600/80 hover:bg-red-500 text-white transition-colors"
+            >
+              End Session
+            </button>
+          )}
         </div>
-      )}
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-        <StatsCard stats={stats} />
-        <ObsCard
-          status={obs.status}
-          onConnect={obs.connect}
-          onDisconnect={obs.disconnect}
-          onStartReplay={obs.startReplay}
-          onSaveReplay={obs.saveReplay}
-          loading={obs.loading}
-        />
       </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-        <TestButtons onSend={sendTestTranscript} />
-        <EvaluationCard metrics={metrics} onMissedMoment={handleMissedMoment} />
-      </div>
-
-      <div className="mb-6">
-        <Timeline events={events} onFeedback={handleFeedback} />
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-        <TranscriptPanel transcripts={transcripts} />
-        <SettingsPanel />
-      </div>
-    </main>
+    </div>
   );
 }

@@ -173,6 +173,9 @@ class ObsService {
       if (msg.includes("ECONNREFUSED")) {
         return "OBS is not running or WebSocket server is not enabled. Enable it in OBS → Tools → WebSocket Server Settings.";
       }
+      if (msg.includes("subprotocol")) {
+        return "OBS WebSocket protocol mismatch. Ensure OBS 28+ with built-in WebSocket v5 is running (not the old v4 plugin).";
+      }
       if (msg.includes("Authentication") || msg.includes("authentication")) {
         return "OBS WebSocket requires a password. Set OBS_PASSWORD in your .env file.";
       }

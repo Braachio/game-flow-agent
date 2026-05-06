@@ -7,9 +7,9 @@ interface EvaluationCardProps {
 
 export function EvaluationCard({ metrics, onMissedMoment }: EvaluationCardProps) {
   return (
-    <div className="bg-gray-800 rounded-lg p-4">
+    <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
       <div className="flex items-center justify-between mb-3">
-        <h2 className="text-xl font-semibold">Evaluation</h2>
+        <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider">Evaluation</h2>
         <button
           onClick={onMissedMoment}
           className="px-3 py-1.5 bg-orange-600 hover:bg-orange-700 rounded text-sm font-medium transition-colors"

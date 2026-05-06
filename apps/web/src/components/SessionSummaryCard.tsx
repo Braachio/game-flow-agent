@@ -126,7 +126,7 @@ export function SessionSummaryCard({ events, sessionId, onDismiss, onSave }: Ses
   };
 
   return (
-    <div className="bg-gray-800 border border-blue-700 rounded-lg p-5 mb-6">
+    <div className="bg-gray-900 border border-blue-800 rounded-xl p-5">
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-xl font-bold">Session Summary</h2>
         <button
