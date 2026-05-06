@@ -23,6 +23,55 @@ async function saveReports(reports: SessionReport[]): Promise<void> {
   await writeFile(REPORTS_FILE, JSON.stringify(reports, null, 2));
 }
 
+const CATEGORY_LABELS: Record<string, string> = {
+  excitement: "흥분",
+  frustration: "짜증",
+  surprise: "놀람",
+  victory: "승리",
+  defeat: "패배",
+  neutral: "기타",
+};
+
+function buildReadme(report: SessionReport): string {
+  const lines: string[] = [];
+
+  lines.push(`Session: ${report.sessionId}`);
+  lines.push(`Started: ${report.startedAt}`);
+  lines.push(`Ended:   ${report.endedAt}`);
+  lines.push("");
+  lines.push(`Total Reactions: ${report.totalReactions}`);
+  lines.push(`Clips Saved:     ${report.clipsSaved}`);
+  lines.push("");
+
+  lines.push("Category Breakdown:");
+  for (const [cat, count] of Object.entries(report.byCategory)) {
+    if (count > 0) {
+      lines.push(`  ${CATEGORY_LABELS[cat] || cat}: ${count}`);
+    }
+  }
+  lines.push("");
+
+  lines.push("Interpretation:");
+  lines.push(`  ${report.interpretation}`);
+  lines.push("");
+
+  if (report.clips && report.clips.length > 0) {
+    lines.push("Clips:");
+    for (const clip of report.clips) {
+      lines.push(`  - ${clip.filename}  [${clip.category}] "${clip.transcript}"`);
+    }
+    lines.push("");
+  }
+
+  if (report.memo) {
+    lines.push("Memo:");
+    lines.push(`  ${report.memo}`);
+    lines.push("");
+  }
+
+  return lines.join("\n");
+}
+
 export const sessionsRoute: FastifyPluginAsync = async (app) => {
   app.post("/sessions/start", async (): Promise<SessionStartResponse> => {
     const sessionId = generateSessionId();
@@ -49,7 +98,7 @@ export const sessionsRoute: FastifyPluginAsync = async (app) => {
         `[Session] Report saved: ${report.sessionId} — ${report.totalReactions} reactions, ${report.clipsSaved} clips`
       );
 
-      // Also save report inside session folder if available
+      // Also save report + README inside session folder if available
       if (report.sessionFolderPath) {
         try {
           const folderReportPath = join(report.sessionFolderPath, "session-report.json");
@@ -58,6 +107,15 @@ export const sessionsRoute: FastifyPluginAsync = async (app) => {
         } catch (err) {
           const msg = err instanceof Error ? err.message : String(err);
           console.error(`[Session] Failed to save report to session folder: ${msg}`);
+        }
+
+        try {
+          const readmePath = join(report.sessionFolderPath, "README.txt");
+          await writeFile(readmePath, buildReadme(report));
+          console.log(`[Session] README.txt saved to: ${readmePath}`);
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.error(`[Session] Failed to save README.txt: ${msg}`);
         }
       }
 
