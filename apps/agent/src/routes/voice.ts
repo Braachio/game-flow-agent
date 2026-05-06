@@ -14,6 +14,7 @@ import { renameClipForEvent } from "../services/clip-file.service.js";
 import { detectIntent } from "../services/intent-detector.js";
 import { sessionState } from "../services/session-state.js";
 import { decideAction } from "../services/action-decision.service.js";
+import { eventBus } from "../services/event-bus.js";
 
 export const voiceRoute: FastifyPluginAsync = async (app) => {
   app.post<{ Body: VoiceEventRequest }>(
@@ -49,6 +50,7 @@ export const voiceRoute: FastifyPluginAsync = async (app) => {
           const newSessionId = sessionId || generateSessionId();
           await sessionState.start(newSessionId);
           console.log(`[VoiceCommand] Session started: ${newSessionId}`);
+          eventBus.emit({ type: "session_start", payload: { sessionId: newSessionId } });
           reply.status(200);
           return { command: true, intent: intentResult.intent, transcript, sessionId: newSessionId };
         }
@@ -56,6 +58,7 @@ export const voiceRoute: FastifyPluginAsync = async (app) => {
           const endedSessionId = sessionState.getSessionId();
           sessionState.end();
           console.log(`[VoiceCommand] Session ended: ${endedSessionId}`);
+          eventBus.emit({ type: "session_end", payload: { sessionId: endedSessionId || "" } });
           reply.status(200);
           return { command: true, intent: intentResult.intent, transcript, sessionId: endedSessionId || undefined };
         }
@@ -152,6 +155,7 @@ export const voiceRoute: FastifyPluginAsync = async (app) => {
         }
       }
 
+      eventBus.emit({ type: "voice_event", payload: event });
       return { event };
     }
   );

@@ -1,5 +1,6 @@
 import OBSWebSocket from "obs-websocket-js";
 import type { VoiceEvent, ObsStatus, ReactionCategory } from "@likelion/shared";
+import { eventBus } from "./event-bus.js";
 
 const CLIP_CATEGORIES: ReactionCategory[] = ["excitement", "victory", "surprise"];
 
@@ -52,13 +53,16 @@ class ObsService {
         console.log("[OBS] Connection closed");
         this._connected = false;
         this._replayBufferActive = false;
+        this.emitStatus();
       });
 
       this.obs.on("ReplayBufferStateChanged", (data) => {
         this._replayBufferActive = data.outputActive;
         console.log(`[OBS] Replay buffer ${data.outputActive ? "started" : "stopped"}`);
+        this.emitStatus();
       });
 
+      this.emitStatus();
       return this.getStatus();
     } catch (err: unknown) {
       this._connected = false;
@@ -79,6 +83,10 @@ class ObsService {
     this._error = undefined;
     console.log("[OBS] Disconnected");
     return this.getStatus();
+  }
+
+  private emitStatus(): void {
+    eventBus.emit({ type: "obs_status", payload: this.getStatus() });
   }
 
   getStatus(): ObsStatus {

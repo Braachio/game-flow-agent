@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
 import { useObs } from "@/hooks/useObs";
 import { useClipSound } from "@/hooks/useClipSound";
+import { useEventStream } from "@/hooks/useEventStream";
 import Link from "next/link";
 import type { VoiceEvent, SessionReport } from "@likelion/shared";
 
@@ -31,6 +32,7 @@ export default function Home() {
   const sessionIdRef = useRef<string | null>(null);
   const obs = useObs();
   const playClipSound = useClipSound();
+  const { connected: sseConnected } = useEventStream();
 
   // --- Session control ---
 
@@ -186,6 +188,10 @@ export default function Home() {
           <div className="flex items-center gap-1.5 text-xs text-gray-500">
             <span className={`w-1.5 h-1.5 rounded-full ${isListening ? "bg-blue-500" : "bg-gray-700"}`} />
             Mic
+          </div>
+          <div className="flex items-center gap-1.5 text-xs text-gray-500">
+            <span className={`w-1.5 h-1.5 rounded-full ${sseConnected ? "bg-emerald-500" : "bg-gray-700"}`} />
+            Live
           </div>
           <Link href="/dev" className="text-xs text-gray-600 hover:text-gray-400 transition-colors">
             Dev
