@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from "fastify";
 import type { EvaluationMetrics, UserFeedback, FalseNegativeEvent } from "@likelion/shared";
 import { eventRepository } from "../services/event-repository.js";
+import { feedbackLearner } from "../services/feedback-learner.js";
 
 export const evaluationRoute: FastifyPluginAsync = async (app) => {
   app.get<{ Querystring: { sessionId?: string } }>(
@@ -24,9 +25,23 @@ export const evaluationRoute: FastifyPluginAsync = async (app) => {
         throw new Error("Event not found");
       }
       console.log(`[Eval] Event ${eventId} marked as: ${feedback}`);
+
+      // Learn from feedback
+      if (feedback === "useful" || feedback === "false_positive") {
+        await feedbackLearner.learn(event);
+      }
+
       return { event };
     }
   );
+
+  app.get("/events/keyword-weights", async () => {
+    return feedbackLearner.getWeights();
+  });
+
+  app.get("/events/penalized-keywords", async () => {
+    return feedbackLearner.getPenalizedKeywords();
+  });
 
   app.post<{ Body: { sessionId?: string; note?: string } }>(
     "/events/false-negative",

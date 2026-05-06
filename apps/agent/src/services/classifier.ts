@@ -7,6 +7,7 @@ import {
   type ClassificationDebug,
   type ReactionCategory,
 } from "@likelion/shared";
+import { feedbackLearner } from "./feedback-learner.js";
 
 const DEBUG = process.env.CLASSIFIER_DEBUG === "true";
 
@@ -135,10 +136,14 @@ export function classify(transcript: string): ClassificationResult {
   // 5. Intensity boost — strong modifier words
   const intensityBoost = calcIntensityBoost(transcript);
 
-  const totalScore = best.score + repetitionBoost + intensityBoost;
-  const confidence = Math.min(totalScore / 3, 1);
+  // 6. Feedback-learned weight adjustment
+  const allMatched = [...best.phraseMatches, ...best.keywordMatches];
+  const feedbackAdjustment = feedbackLearner.getScoreAdjustment(allMatched);
 
-  const allMatches = [...best.phraseMatches, ...best.keywordMatches];
+  const totalScore = best.score + repetitionBoost + intensityBoost + feedbackAdjustment;
+  const confidence = Math.max(0, Math.min(totalScore / 3, 1));
+
+  const allMatches = allMatched;
 
   debug.rawScore = best.score;
   debug.phraseMatches = best.phraseMatches;
