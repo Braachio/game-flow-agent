@@ -1,7 +1,9 @@
 import { readFile, writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import type { FastifyPluginAsync } from "fastify";
-import type { SessionReport } from "@likelion/shared";
+import { generateSessionId } from "@likelion/shared";
+import type { SessionReport, SessionStartResponse } from "@likelion/shared";
+import { sessionState } from "../services/session-state.js";
 
 const DATA_DIR = join(process.cwd(), "data");
 const REPORTS_FILE = join(DATA_DIR, "session-reports.json");
@@ -22,6 +24,16 @@ async function saveReports(reports: SessionReport[]): Promise<void> {
 }
 
 export const sessionsRoute: FastifyPluginAsync = async (app) => {
+  app.post("/sessions/start", async (): Promise<SessionStartResponse> => {
+    const sessionId = generateSessionId();
+    await sessionState.start(sessionId);
+    console.log(`[Session] Started: ${sessionId}`);
+    return {
+      sessionId,
+      sessionFolderPath: sessionState.getFolderPath() || undefined,
+    };
+  });
+
   app.get("/sessions/reports", async (): Promise<SessionReport[]> => {
     return loadReports();
   });

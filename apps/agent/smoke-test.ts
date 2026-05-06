@@ -6,6 +6,7 @@ import { decideAction } from "./src/services/action-decision.service.js";
 import { detectIntent } from "./src/services/intent-detector.js";
 import { sessionState } from "./src/services/session-state.js";
 import { classify } from "./src/services/classifier.js";
+import { generateSessionId } from "@likelion/shared";
 
 let passed = 0;
 let failed = 0;
@@ -189,27 +190,39 @@ console.log("\n=== 7. Classification still feeds action layer correctly ===");
 console.log("\n=== 8. Session state service ===");
 resetSession();
 {
+  const sid = generateSessionId();
   assert(!sessionState.isActive(), "initially inactive");
-  await sessionState.start("test_123");
+  await sessionState.start(sid);
   assert(sessionState.isActive(), "active after start");
-  assert(sessionState.getSessionId() === "test_123", "session ID stored");
+  assert(sessionState.getSessionId() === sid, "session ID stored");
   sessionState.end();
   assert(!sessionState.isActive(), "inactive after end");
   assert(sessionState.getSessionId() === null, "session ID cleared");
 }
 
-console.log("\n=== 9. Session folder creation ===");
+console.log("\n=== 9. Session ID format ===");
+{
+  const sid = generateSessionId();
+  const pattern = /^session_\d{8}_\d{6}_[a-z0-9]{6}$/;
+  assert(pattern.test(sid), `format matches session_YYYYMMDD_HHMMSS_xxxxxx: ${sid}`);
+
+  // Two IDs should be unique
+  const sid2 = generateSessionId();
+  assert(sid !== sid2, "IDs are unique");
+}
+
+console.log("\n=== 10. Session folder = sessionId ===");
 resetSession();
 {
-  // With OBS_RECORDING_DIR set, folder should be created
   const testDir = "/tmp/likelion-smoke-test-clips";
   process.env.OBS_RECORDING_DIR = testDir;
-  await sessionState.start("test_folder_abc123");
+
+  const sid = generateSessionId();
+  await sessionState.start(sid);
   const folderPath = sessionState.getFolderPath();
   assert(folderPath !== null, "folder path is set");
-  assert(folderPath!.includes("session_"), `folder path contains session_: ${folderPath}`);
-  assert(folderPath!.includes("abc123".slice(-6)), "folder path contains short session ID");
-  assert(folderPath!.startsWith(testDir), "folder path is under OBS_RECORDING_DIR");
+  assert(folderPath!.endsWith(sid), `folder name equals sessionId: ${folderPath}`);
+  assert(folderPath!.startsWith(testDir), "folder is under OBS_RECORDING_DIR");
 
   // Verify folder actually exists
   const { existsSync } = await import("node:fs");
@@ -220,7 +233,7 @@ resetSession();
 
   // Without OBS_RECORDING_DIR, no folder
   delete process.env.OBS_RECORDING_DIR;
-  await sessionState.start("test_no_dir");
+  await sessionState.start(generateSessionId());
   assert(sessionState.getFolderPath() === null, "no folder when OBS_RECORDING_DIR unset");
   sessionState.end();
 

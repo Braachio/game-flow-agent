@@ -18,10 +18,6 @@ import type { VoiceEvent, EventStats, EvaluationMetrics, UserFeedback, SessionRe
 
 const AGENT_URL = process.env.NEXT_PUBLIC_AGENT_URL || "http://localhost:3001";
 
-function generateSessionId() {
-  return `session_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-}
-
 export default function Home() {
   const [events, setEvents] = useState<VoiceEvent[]>([]);
   const [transcripts, setTranscripts] = useState<string[]>([]);
@@ -34,7 +30,7 @@ export default function Home() {
   const [sessionSummary, setSessionSummary] = useState<VoiceEvent[] | null>(null);
   const [voiceCommandFeedback, setVoiceCommandFeedback] = useState<string | null>(null);
   const sessionIdRef = useRef<string | null>(null);
-  const voiceSessionHandlersRef = useRef<{ start: () => void; end: () => void }>({ start: () => {}, end: () => {} });
+  const voiceSessionHandlersRef = useRef<{ start: (sessionId: string) => void; end: () => void }>({ start: () => {}, end: () => {} });
   const obs = useObs();
   const playClipSound = useClipSound();
 
@@ -80,9 +76,9 @@ export default function Home() {
 
         if (data.command) {
           // Voice command detected — trigger session control
-          if (data.intent === "START_SESSION") {
+          if (data.intent === "START_SESSION" && data.sessionId) {
             setVoiceCommandFeedback("Session started by voice");
-            voiceSessionHandlersRef.current.start();
+            voiceSessionHandlersRef.current.start(data.sessionId);
           } else if (data.intent === "END_SESSION") {
             setVoiceCommandFeedback("Session ended by voice");
             voiceSessionHandlersRef.current.end();
@@ -149,8 +145,8 @@ export default function Home() {
     lang: "ko-KR",
   });
 
-  const resetSession = useCallback(() => {
-    sessionIdRef.current = generateSessionId();
+  const resetSessionState = useCallback((newSessionId: string) => {
+    sessionIdRef.current = newSessionId;
     setSessionSummary(null);
     setEvents([]);
     setTranscripts([]);
@@ -158,10 +154,21 @@ export default function Home() {
     setLatencyMs(null);
   }, []);
 
-  const handleStart = useCallback(() => {
-    resetSession();
+  const handleStart = useCallback(async () => {
+    try {
+      const res = await fetch(`${AGENT_URL}/sessions/start`, { method: "POST" });
+      if (res.ok) {
+        const data = await res.json();
+        resetSessionState(data.sessionId);
+      }
+    } catch (err) {
+      console.error("Failed to start session on backend:", err);
+      // Fallback: generate client-side ID
+      const fallbackId = `session_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      resetSessionState(fallbackId);
+    }
     start();
-  }, [resetSession, start]);
+  }, [resetSessionState, start]);
 
   const handleEndSession = useCallback(() => {
     stop();
@@ -169,10 +176,10 @@ export default function Home() {
   }, [stop, events]);
 
   // Keep ref in sync for voice command callbacks
-  // Voice start uses resetSession (recognition already running), not handleStart
+  // Voice start uses resetSessionState (recognition already running), not handleStart
   useEffect(() => {
-    voiceSessionHandlersRef.current = { start: resetSession, end: handleEndSession };
-  }, [resetSession, handleEndSession]);
+    voiceSessionHandlersRef.current = { start: resetSessionState, end: handleEndSession };
+  }, [resetSessionState, handleEndSession]);
 
   const handleSaveReport = useCallback(async (report: SessionReport) => {
     try {

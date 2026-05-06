@@ -3,6 +3,7 @@ import { join } from "node:path";
 
 /**
  * Tracks active session state for voice command guards and clip folder organization.
+ * The sessionId itself is used as the folder name (format: session_YYYYMMDD_HHMMSS_{shortId}).
  */
 class SessionState {
   private active = false;
@@ -32,12 +33,8 @@ class SessionState {
       return;
     }
 
-    const now = new Date();
-    const pad = (n: number) => String(n).padStart(2, "0");
-    const ts = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
-    const shortId = sessionId.slice(-6);
-    const folderName = `session_${ts}_${shortId}`;
-    const folderPath = join(recordingDir, folderName);
+    // Use sessionId directly as folder name
+    const folderPath = join(recordingDir, sessionId);
 
     try {
       await mkdir(folderPath, { recursive: true });

@@ -1,4 +1,5 @@
 import type { FastifyPluginAsync } from "fastify";
+import { generateSessionId } from "@likelion/shared";
 import type {
   VoiceEventRequest,
   VoiceEventResponse,
@@ -45,17 +46,18 @@ export const voiceRoute: FastifyPluginAsync = async (app) => {
         console.log(`[ActionDecision] action=${decision.action} reason=${decision.actionReason}`);
 
         if (decision.action === "START_SESSION") {
-          const newSessionId = sessionId || `session_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+          const newSessionId = sessionId || generateSessionId();
           await sessionState.start(newSessionId);
-          console.log(`[VoiceCommand] Session started`);
+          console.log(`[VoiceCommand] Session started: ${newSessionId}`);
           reply.status(200);
-          return { command: true, intent: intentResult.intent, transcript };
+          return { command: true, intent: intentResult.intent, transcript, sessionId: newSessionId };
         }
         if (decision.action === "END_SESSION") {
+          const endedSessionId = sessionState.getSessionId();
           sessionState.end();
-          console.log(`[VoiceCommand] Session ended`);
+          console.log(`[VoiceCommand] Session ended: ${endedSessionId}`);
           reply.status(200);
-          return { command: true, intent: intentResult.intent, transcript };
+          return { command: true, intent: intentResult.intent, transcript, sessionId: endedSessionId || undefined };
         }
         // IGNORE for invalid session commands
         console.log(`[VoiceCommand] Ignored (${decision.actionReason})`);

@@ -59,6 +59,12 @@ export interface VoiceCommandResponse {
   command: true;
   intent: VoiceIntent;
   transcript: string;
+  sessionId?: string;
+}
+
+export interface SessionStartResponse {
+  sessionId: string;
+  sessionFolderPath?: string;
 }
 
 export interface HealthResponse {
