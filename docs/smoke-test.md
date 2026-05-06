@@ -35,16 +35,20 @@ npm run dev:web     # should open: http://localhost:3002
 - [ ] Web dashboard loads on port 3002
 - [ ] `curl http://localhost:3001/health` returns `{"status":"ok",...}`
 
-## 4. Voice Trigger Test
+## 4. Voice Control & Session Flow
 
 | Step | Action | Expected |
 |------|--------|----------|
-| 4.1 | Click "Start Session" | Button changes to "End Session", session ID appears (format: `session_YYYYMMDD_HHMMSS_xxxxxx`), backend log: `[Session] Started: ...` |
-| 4.2 | Click test button "와 대박" | Event appears in timeline with excitement, confidence ≥60% |
-| 4.3 | Click "와 대박" again immediately | Ignored (cooldown), no new event |
-| 4.4 | Wait 5s, click "와 대박" again | New event accepted |
-| 4.5 | Click "아 망했다" | Event: defeat, no clip triggered |
-| 4.6 | Check agent console | `[Voice] ACCEPTED`, `[Classifier]` debug logs visible |
+| 4.1 | Click "Enable Voice" | Button changes to "Disable Voice", status: `Listening for "세션 시작"...` |
+| 4.2 | Say or send "와 대박" (no session) | Ignored — backend log: `[Voice] Ignored: no active session` |
+| 4.3 | Say "세션 시작" | Session starts, feedback: "Session started by voice", session ID appears |
+| 4.4 | Click "Start Session" button directly | Also starts session + enables voice if not already listening |
+| 4.5 | Click test button "와 대박" | Event appears in timeline with excitement, confidence ≥60% |
+| 4.6 | Click "와 대박" again immediately | Ignored (cooldown), no new event |
+| 4.7 | Wait 5s, click "와 대박" again | New event accepted |
+| 4.8 | Click "아 망했다" | Event: defeat, no clip triggered |
+| 4.9 | Say "세션 종료" or click "End Session" | Session ends, summary card appears, voice stays listening |
+| 4.10 | Check agent console | `[Voice] ACCEPTED`, `[ActionDecision]` logs visible |
 
 ## 5. OBS Save Test
 
@@ -135,14 +139,22 @@ npm run dev:web
 1. Open http://localhost:3002
 2. Demo Mode ON
 3. Connect OBS → Start Replay Buffer
-4. Start Session
-5. Click "와 대박" → verify clip saved + filename in session folder
-6. Click "아 망했다" → verify TAG_EVENT, no clip
-7. Click "나이스" → verify SAVE_CLIP
-8. End Session → verify summary shows session folder path
-9. Write memo → Save Report
-10. curl http://localhost:3001/sessions/reports → verify JSON
-11. Check session folder on disk → clip files + session-report.json present
+4. Click "Enable Voice" → verify listening status
+5. Say "세션 시작" or click "Start Session" → session starts
+6. Click "와 대박" → verify clip saved + filename in session folder
+7. Click "아 망했다" → verify TAG_EVENT, no clip
+8. Click "나이스" → verify SAVE_CLIP
+9. Say "세션 종료" or click "End Session" → summary appears
+10. Write memo → Save Report
+11. curl http://localhost:3001/sessions/reports → verify JSON
+12. Check session folder on disk → clip files + session-report.json + README.txt present
 ```
 
-All 11 steps should complete without errors.
+All 12 steps should complete without errors.
+
+## Voice Control vs Session (Reference)
+
+- **Enable Voice** = microphone permission + listening starts. No events are processed yet.
+- **Start Session** = can be triggered by voice ("세션 시작") or button. Events are now processed.
+- **End Session** = can be triggered by voice ("세션 종료") or button. Summary shown, voice stays active.
+- **Disable Voice** = stops microphone. If session is active, also ends it.

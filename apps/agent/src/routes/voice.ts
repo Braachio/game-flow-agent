@@ -65,6 +65,13 @@ export const voiceRoute: FastifyPluginAsync = async (app) => {
         return { ignored: true, reason: "low_confidence" };
       }
 
+      // When no session is active, ignore all non-command transcripts
+      if (!sessionState.isActive()) {
+        console.log(`[Voice] Ignored: no active session, waiting for START_SESSION command`);
+        reply.status(200);
+        return { ignored: true, reason: "low_confidence" };
+      }
+
       // Action decision for non-command transcripts
       const decision = decideAction({
         transcript,

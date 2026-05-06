@@ -27,10 +27,10 @@ export default function Home() {
   const [lastEvent, setLastEvent] = useState<VoiceEvent | null>(null);
   const [detecting, setDetecting] = useState(false);
   const [latencyMs, setLatencyMs] = useState<number | null>(null);
+  const [sessionActive, setSessionActive] = useState(false);
   const [sessionSummary, setSessionSummary] = useState<VoiceEvent[] | null>(null);
   const [voiceCommandFeedback, setVoiceCommandFeedback] = useState<string | null>(null);
   const sessionIdRef = useRef<string | null>(null);
-  const voiceSessionHandlersRef = useRef<{ start: (sessionId: string) => void; end: () => void }>({ start: () => {}, end: () => {} });
   const obs = useObs();
   const playClipSound = useClipSound();
 
@@ -56,6 +56,40 @@ export default function Home() {
     fetchMetrics();
   }, [fetchStats, fetchMetrics]);
 
+  // --- Session control helpers ---
+
+  const startSession = useCallback(async (providedSessionId?: string) => {
+    let sid = providedSessionId;
+    if (!sid) {
+      try {
+        const res = await fetch(`${AGENT_URL}/sessions/start`, { method: "POST" });
+        if (res.ok) {
+          const data = await res.json();
+          sid = data.sessionId;
+        }
+      } catch (err) {
+        console.error("Failed to start session on backend:", err);
+      }
+    }
+    if (!sid) {
+      sid = `session_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    }
+    sessionIdRef.current = sid;
+    setSessionActive(true);
+    setSessionSummary(null);
+    setEvents([]);
+    setTranscripts([]);
+    setLastEvent(null);
+    setLatencyMs(null);
+  }, []);
+
+  const endSession = useCallback(() => {
+    setSessionActive(false);
+    setSessionSummary([...events]);
+  }, [events]);
+
+  // --- Transcript handling ---
+
   const sendTranscript = useCallback(async (transcript: string, speechStartTime: number) => {
     setTranscripts((prev) => [...prev, transcript]);
     setDetecting(true);
@@ -75,13 +109,12 @@ export default function Home() {
         setLatencyMs(elapsed);
 
         if (data.command) {
-          // Voice command detected — trigger session control
           if (data.intent === "START_SESSION" && data.sessionId) {
             setVoiceCommandFeedback("Session started by voice");
-            voiceSessionHandlersRef.current.start(data.sessionId);
+            startSession(data.sessionId);
           } else if (data.intent === "END_SESSION") {
             setVoiceCommandFeedback("Session ended by voice");
-            voiceSessionHandlersRef.current.end();
+            endSession();
           }
           setTimeout(() => setVoiceCommandFeedback(null), 3000);
         } else if (data.event) {
@@ -100,16 +133,13 @@ export default function Home() {
     } finally {
       setDetecting(false);
     }
-  }, [fetchStats, fetchMetrics]);
+  }, [fetchStats, fetchMetrics, startSession, endSession, playClipSound]);
 
-  // Wrapper for test buttons (no speechStartTime)
   const sendTestTranscript = useCallback((transcript: string) => {
     sendTranscript(transcript, performance.now());
   }, [sendTranscript]);
 
-  const handleInterim = useCallback((_transcript: string) => {
-    // Interim results shown via interimText from the hook
-  }, []);
+  const handleInterim = useCallback((_transcript: string) => {}, []);
 
   const handleFeedback = useCallback(async (eventId: string, feedback: UserFeedback) => {
     try {
@@ -145,41 +175,29 @@ export default function Home() {
     lang: "ko-KR",
   });
 
-  const resetSessionState = useCallback((newSessionId: string) => {
-    sessionIdRef.current = newSessionId;
-    setSessionSummary(null);
-    setEvents([]);
-    setTranscripts([]);
-    setLastEvent(null);
-    setLatencyMs(null);
-  }, []);
+  // --- Button handlers ---
 
-  const handleStart = useCallback(async () => {
-    try {
-      const res = await fetch(`${AGENT_URL}/sessions/start`, { method: "POST" });
-      if (res.ok) {
-        const data = await res.json();
-        resetSessionState(data.sessionId);
-      }
-    } catch (err) {
-      console.error("Failed to start session on backend:", err);
-      // Fallback: generate client-side ID
-      const fallbackId = `session_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-      resetSessionState(fallbackId);
-    }
+  const handleEnableVoice = useCallback(() => {
     start();
-  }, [resetSessionState, start]);
+  }, [start]);
 
-  const handleEndSession = useCallback(() => {
+  const handleDisableVoice = useCallback(() => {
     stop();
-    setSessionSummary([...events]);
-  }, [stop, events]);
+    if (sessionActive) {
+      endSession();
+    }
+  }, [stop, sessionActive, endSession]);
 
-  // Keep ref in sync for voice command callbacks
-  // Voice start uses resetSessionState (recognition already running), not handleStart
-  useEffect(() => {
-    voiceSessionHandlersRef.current = { start: resetSessionState, end: handleEndSession };
-  }, [resetSessionState, handleEndSession]);
+  const handleStartSessionButton = useCallback(async () => {
+    await startSession();
+    if (!isListening) {
+      start();
+    }
+  }, [startSession, isListening, start]);
+
+  const handleEndSessionButton = useCallback(() => {
+    endSession();
+  }, [endSession]);
 
   const handleSaveReport = useCallback(async (report: SessionReport) => {
     try {
@@ -230,17 +248,42 @@ export default function Home() {
       )}
 
       <div className="mb-6 flex items-center gap-4">
+        {/* Voice Control toggle */}
         <button
-          onClick={isListening ? handleEndSession : handleStart}
-          className={`px-6 py-3 rounded-lg font-semibold text-lg transition-colors ${
+          onClick={isListening ? handleDisableVoice : handleEnableVoice}
+          className={`px-5 py-3 rounded-lg font-semibold transition-colors ${
             isListening
-              ? "bg-red-600 hover:bg-red-700"
-              : "bg-green-600 hover:bg-green-700"
+              ? "bg-gray-600 hover:bg-gray-700 text-gray-200"
+              : "bg-blue-600 hover:bg-blue-700"
           }`}
         >
-          {isListening ? "End Session" : "Start Session"}
+          {isListening ? "Disable Voice" : "Enable Voice"}
         </button>
-        {isListening && !interimText && !detecting && (
+
+        {/* Session control */}
+        {!sessionActive ? (
+          <button
+            onClick={handleStartSessionButton}
+            className="px-5 py-3 rounded-lg font-semibold bg-green-600 hover:bg-green-700 transition-colors"
+          >
+            Start Session
+          </button>
+        ) : (
+          <button
+            onClick={handleEndSessionButton}
+            className="px-5 py-3 rounded-lg font-semibold bg-red-600 hover:bg-red-700 transition-colors"
+          >
+            End Session
+          </button>
+        )}
+
+        {/* Status indicators */}
+        {isListening && !sessionActive && !interimText && !detecting && (
+          <span className="text-blue-400 text-sm animate-pulse">
+            Listening for &quot;세션 시작&quot;...
+          </span>
+        )}
+        {isListening && sessionActive && !interimText && !detecting && (
           <span className="text-green-400 animate-pulse">Listening...</span>
         )}
         {interimText && (
@@ -252,7 +295,7 @@ export default function Home() {
         {latencyMs !== null && !detecting && (
           <span className="text-xs text-gray-500">{latencyMs}ms</span>
         )}
-        {sessionIdRef.current && (
+        {sessionIdRef.current && sessionActive && (
           <span className="text-xs text-gray-600">
             {sessionIdRef.current.slice(8, 21)}
           </span>
