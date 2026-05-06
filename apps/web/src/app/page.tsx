@@ -193,6 +193,9 @@ export default function Home() {
             <span className={`w-1.5 h-1.5 rounded-full ${sseConnected ? "bg-emerald-500" : "bg-gray-700"}`} />
             Live
           </div>
+          <Link href="/sessions" className="text-xs text-gray-600 hover:text-gray-400 transition-colors">
+            History
+          </Link>
           <Link href="/dev" className="text-xs text-gray-600 hover:text-gray-400 transition-colors">
             Dev
           </Link>
