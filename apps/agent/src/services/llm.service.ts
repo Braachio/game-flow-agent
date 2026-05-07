@@ -5,7 +5,7 @@
 
 const LLM_BASE_URL = process.env.LLM_BASE_URL || "http://localhost:11434/v1";
 const LLM_MODEL = process.env.LLM_MODEL || "gemma4:e2b";
-const LLM_TIMEOUT = 15_000;
+const LLM_TIMEOUT = 30_000;
 
 interface ChatMessage {
   role: "system" | "user" | "assistant";
