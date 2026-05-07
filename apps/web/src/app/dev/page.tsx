@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
 import { useObs } from "@/hooks/useObs";
 import { useClipSound } from "@/hooks/useClipSound";
+import { useEventStream } from "@/hooks/useEventStream";
 import { DemoBanner } from "@/components/DemoBanner";
 import { Timeline } from "@/components/Timeline";
 import { TestButtons } from "@/components/TestButtons";
@@ -36,6 +37,34 @@ export default function Home() {
   const sessionIdRef = useRef<string | null>(null);
   const obs = useObs();
   const playClipSound = useClipSound();
+
+  // SSE: sync state across tabs
+  const handleSSE = useCallback((event: { type: string; payload: unknown }) => {
+    if (event.type === "voice_event") {
+      const e = event.payload as VoiceEvent;
+      if (!sessionIdRef.current || e.sessionId === sessionIdRef.current) {
+        setEvents((prev) => {
+          if (prev.some((p) => p.id === e.id)) return prev;
+          return [...prev, e];
+        });
+        setLastEvent(e);
+        if (e.clipSaved) playClipSound();
+      }
+    } else if (event.type === "session_start") {
+      const p = event.payload as { sessionId: string };
+      if (!sessionIdRef.current) {
+        sessionIdRef.current = p.sessionId;
+        setSessionActive(true);
+      }
+    } else if (event.type === "session_end") {
+      if (sessionIdRef.current) {
+        setSessionActive(false);
+        setSessionSummary([...eventsRef.current]);
+      }
+    }
+  }, [playClipSound]);
+
+  const { connected: sseConnected } = useEventStream({ onEvent: handleSSE });
 
   // --- Data fetching ---
 
@@ -229,6 +258,10 @@ export default function Home() {
             <div className="flex items-center gap-2 text-xs text-gray-500" title={speechError || undefined}>
               <span className={`w-2 h-2 rounded-full ${speechError ? "bg-red-500" : isListening ? "bg-blue-500 animate-pulse-ring" : "bg-gray-600"}`} />
               <span>Mic</span>
+            </div>
+            <div className="flex items-center gap-2 text-xs text-gray-500">
+              <span className={`w-2 h-2 rounded-full ${sseConnected ? "bg-emerald-500" : "bg-gray-600"}`} />
+              <span>Live</span>
             </div>
             <Link href="/" className="text-xs text-gray-500 hover:text-gray-300 transition-colors">
               Live View
