@@ -152,7 +152,10 @@ export default function Home() {
           }
           setTimeout(() => setVoiceCommandFeedback(null), 3000);
         } else if (data.event) {
-          setEvents((prev) => [...prev, data.event]);
+          setEvents((prev) => {
+            if (prev.some((p) => p.id === data.event.id)) return prev;
+            return [...prev, data.event];
+          });
           setLastEvent(data.event);
           if (data.event.clipSaved) {
             playClipSound();
