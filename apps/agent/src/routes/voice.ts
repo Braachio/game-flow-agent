@@ -29,6 +29,8 @@ export const voiceRoute: FastifyPluginAsync = async (app) => {
         throw new Error("transcript is required");
       }
 
+      console.log(`[Voice] Received: "${transcript}"`);
+
       // Detect voice command intent
       const intentResult = detectIntent(transcript);
 
