@@ -149,6 +149,7 @@ export default function Home() {
   });
 
   const handleStartSession = useCallback(async () => {
+    ttsRef.current.unlock();
     await startSession();
     if (!isListening) start();
   }, [startSession, isListening, start]);
@@ -157,7 +158,7 @@ export default function Home() {
     endSession();
   }, [endSession]);
 
-  const handleEnableVoice = useCallback(() => { start(); }, [start]);
+  const handleEnableVoice = useCallback(() => { ttsRef.current.unlock(); start(); }, [start]);
   const handleDisableVoice = useCallback(() => {
     stop();
     if (sessionActive) endSession();

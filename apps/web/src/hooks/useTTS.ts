@@ -65,6 +65,15 @@ export function useTTS({ lang = "ko-KR", rate = 1.1, pitch = 1.0 }: UseTTSOption
     setSpeaking(false);
   }, []);
 
+  /** Call on first user interaction to unlock browser audio policy */
+  const unlock = useCallback(() => {
+    const synth = window.speechSynthesis;
+    if (!synth) return;
+    const u = new SpeechSynthesisUtterance("");
+    u.volume = 0;
+    synth.speak(u);
+  }, []);
+
   const toggle = useCallback(() => {
     setEnabled((v) => {
       if (v) stop(); // If disabling, stop current speech
@@ -72,5 +81,5 @@ export function useTTS({ lang = "ko-KR", rate = 1.1, pitch = 1.0 }: UseTTSOption
     });
   }, [stop]);
 
-  return { speak, stop, speaking, enabled, toggle };
+  return { speak, stop, unlock, speaking, enabled, toggle };
 }
