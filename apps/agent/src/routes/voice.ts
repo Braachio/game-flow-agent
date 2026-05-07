@@ -216,15 +216,16 @@ export const voiceRoute: FastifyPluginAsync = async (app) => {
       }
 
       // Record in flow tracker
-      flowTracker.record(event.category, event.confidence, decision.action === "SAVE_CLIP" && !!event.clipSaved);
+      // Record based on action decision, not OBS result (suppression should work even without OBS)
+      flowTracker.record(event.category, event.confidence, decision.action === "SAVE_CLIP");
 
       eventBus.emit({ type: "voice_event", payload: event });
 
-      // Agent commentary (non-blocking)
+      // Agent commentary (non-blocking) — based on action decision, not OBS result
       generateCommentary({
         event,
         flowContext: decision.flowContext,
-        clipSaved: !!event.clipSaved,
+        clipSaved: decision.action === "SAVE_CLIP",
         action: decision.action,
       });
 
