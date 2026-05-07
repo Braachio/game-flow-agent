@@ -22,6 +22,11 @@ class ObsService {
     return this._connected;
   }
 
+  /** Access the raw OBS WebSocket instance for advanced calls */
+  get rawSocket() {
+    return this.obs;
+  }
+
   get replayBufferActive() {
     return this._replayBufferActive;
   }
