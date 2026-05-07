@@ -17,6 +17,7 @@ import { decideAction } from "../services/action-decision.service.js";
 import { flowTracker } from "../services/flow-tracker.js";
 import { eventBus } from "../services/event-bus.js";
 import { captureScreenContext } from "../services/screen-context.service.js";
+import { llmClassify, llmClipTitle, isLLMAvailable } from "../services/llm.service.js";
 
 export const voiceRoute: FastifyPluginAsync = async (app) => {
   app.post<{ Body: VoiceEventRequest }>(
@@ -78,6 +79,20 @@ export const voiceRoute: FastifyPluginAsync = async (app) => {
         console.log(`[Voice] Ignored: no active session, waiting for START_SESSION command`);
         reply.status(200);
         return { ignored: true, reason: "low_confidence" };
+      }
+
+      // LLM-assisted classification for ambiguous cases
+      if (classification.confidence > 0.3 && classification.confidence < 0.6 && classification.category !== "neutral") {
+        const llmResult = await llmClassify(transcript, {
+          currentCategory: classification.category,
+          confidence: classification.confidence,
+        });
+        if (llmResult && llmResult.category !== "neutral") {
+          console.log(`[LLM] Reclassified: "${transcript}" → ${llmResult.category} (was ${classification.category}). Reason: ${llmResult.reason}`);
+          classification.category = llmResult.category as typeof classification.category;
+          classification.confidence = 0.7; // LLM-boosted confidence
+          classification.matchedKeywords = [...classification.matchedKeywords, `llm:${llmResult.reason}`];
+        }
       }
 
       // Action decision for non-command transcripts
@@ -171,6 +186,21 @@ export const voiceRoute: FastifyPluginAsync = async (app) => {
               screenScore: screenCtx.scoreInfo,
             };
           }
+
+          // LLM clip title (non-blocking, best-effort)
+          const meta = event.metadata as Record<string, unknown> | undefined;
+          llmClipTitle({
+            transcript: event.transcript,
+            category: event.category,
+            isTurningPoint: !!meta?.isTurningPoint,
+            phase: meta?.phase as string,
+          }).then((title) => {
+            if (title) {
+              event.metadata = { ...event.metadata as Record<string, unknown>, clipTitle: title };
+              eventRepository.update(event);
+              console.log(`[LLM] Clip title: "${title}" for "${event.transcript}"`);
+            }
+          });
 
           await eventRepository.update(event);
         }
