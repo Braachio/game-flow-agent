@@ -128,7 +128,7 @@ export const voiceRoute: FastifyPluginAsync = async (app) => {
 
       // Only trigger OBS clip when action is SAVE_CLIP
       if (decision.action === "SAVE_CLIP") {
-        const clipResult = await obsService.triggerClipForEvent(event);
+        const clipResult = await obsService.triggerClipForEvent(event, decision.flowContext);
 
         if (clipResult.obsTriggeredAt) {
           event.clipSaved = clipResult.clipSaved;
