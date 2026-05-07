@@ -1,4 +1,5 @@
 import type { AgentAction, ReactionCategory, VoiceIntent, VoiceEvent } from "@likelion/shared";
+import { flowTracker, type FlowContext } from "./flow-tracker.js";
 
 export interface DecisionInput {
   transcript: string;
@@ -12,6 +13,7 @@ export interface DecisionInput {
 export interface DecisionOutput {
   action: AgentAction;
   actionReason: string;
+  flowContext?: FlowContext;
 }
 
 export function decideAction(input: DecisionInput): DecisionOutput {
@@ -33,27 +35,79 @@ export function decideAction(input: DecisionInput): DecisionOutput {
     return { action: "IGNORE", actionReason: "no active session" };
   }
 
-  // Low confidence → ignore
-  if (confidence < 0.6) {
-    return { action: "IGNORE", actionReason: `low confidence (${Math.round(confidence * 100)}%)` };
+  // Get flow context for smarter decisions
+  const flow = flowTracker.analyze(category, confidence);
+
+  // Use adaptive threshold instead of fixed 0.6
+  if (confidence < flow.adaptiveThreshold) {
+    return {
+      action: "IGNORE",
+      actionReason: `below adaptive threshold (${Math.round(confidence * 100)}% < ${Math.round(flow.adaptiveThreshold * 100)}%)`,
+      flowContext: flow,
+    };
   }
 
-  // Category-based decisions
+  // Apply silence boost to effective confidence
+  const effectiveConfidence = Math.min(confidence + flow.silenceBoost, 1);
+
+  // Category-based decisions with flow awareness
   if (category === "excitement" || category === "victory") {
-    return { action: "SAVE_CLIP", actionReason: `high-value moment: ${category}` };
+    // Suppress if sustained same category (avoid 3 identical clips in a row)
+    if (flow.suppressClip) {
+      return {
+        action: "TAG_EVENT",
+        actionReason: `sustained ${category} — tagging instead of clipping (${flow.categoryRepeatCount}x repeat)`,
+        flowContext: flow,
+      };
+    }
+
+    // Turning point bonus: switch from negative to positive = likely a comeback
+    const reason = flow.isTurningPoint
+      ? `turning point: ${category} after negative (silence ${Math.round(flow.silenceSec)}s)`
+      : flow.silenceBoost > 0
+        ? `high-value moment: ${category} (silence boost +${Math.round(flow.silenceBoost * 100)}%)`
+        : `high-value moment: ${category}`;
+
+    return { action: "SAVE_CLIP", actionReason: reason, flowContext: flow };
   }
 
   if (category === "surprise") {
-    if (confidence >= 0.75) {
-      return { action: "SAVE_CLIP", actionReason: `surprise with high confidence (${Math.round(confidence * 100)}%)` };
+    if (effectiveConfidence >= 0.75) {
+      if (flow.suppressClip) {
+        return {
+          action: "TAG_EVENT",
+          actionReason: `sustained surprise — tagging (${flow.categoryRepeatCount}x)`,
+          flowContext: flow,
+        };
+      }
+      return {
+        action: "SAVE_CLIP",
+        actionReason: `surprise with effective confidence ${Math.round(effectiveConfidence * 100)}%`,
+        flowContext: flow,
+      };
     }
-    return { action: "TAG_EVENT", actionReason: `surprise but confidence below clip threshold (${Math.round(confidence * 100)}%)` };
+    return {
+      action: "TAG_EVENT",
+      actionReason: `surprise but below clip threshold (${Math.round(effectiveConfidence * 100)}%)`,
+      flowContext: flow,
+    };
   }
 
   if (category === "frustration" || category === "defeat") {
-    return { action: "TAG_EVENT", actionReason: `negative moment: ${category}` };
+    // Turning point (positive → negative) after a streak = meaningful moment
+    if (flow.isTurningPoint && flow.silenceBoost > 0.1) {
+      return {
+        action: "SAVE_CLIP",
+        actionReason: `dramatic reversal: ${category} after positive streak`,
+        flowContext: flow,
+      };
+    }
+    return {
+      action: "TAG_EVENT",
+      actionReason: `negative moment: ${category}`,
+      flowContext: flow,
+    };
   }
 
-  // neutral or anything else
-  return { action: "IGNORE", actionReason: "neutral — no action needed" };
+  return { action: "IGNORE", actionReason: "neutral — no action needed", flowContext: flow };
 }

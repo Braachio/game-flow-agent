@@ -4,6 +4,7 @@ import type { FastifyPluginAsync } from "fastify";
 import { generateSessionId } from "@likelion/shared";
 import type { SessionReport, SessionStartResponse } from "@likelion/shared";
 import { sessionState } from "../services/session-state.js";
+import { flowTracker } from "../services/flow-tracker.js";
 
 const DATA_DIR = join(process.cwd(), "data");
 const REPORTS_FILE = join(DATA_DIR, "session-reports.json");
@@ -76,6 +77,7 @@ export const sessionsRoute: FastifyPluginAsync = async (app) => {
   app.post("/sessions/start", async (): Promise<SessionStartResponse> => {
     const sessionId = generateSessionId();
     await sessionState.start(sessionId);
+    flowTracker.reset();
     console.log(`[Session] Started: ${sessionId}`);
     return {
       sessionId,

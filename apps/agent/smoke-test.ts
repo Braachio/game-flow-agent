@@ -6,6 +6,7 @@ import { decideAction } from "./src/services/action-decision.service.js";
 import { detectIntent } from "./src/services/intent-detector.js";
 import { sessionState } from "./src/services/session-state.js";
 import { classify } from "./src/services/classifier.js";
+import { flowTracker } from "./src/services/flow-tracker.js";
 import { generateSessionId } from "@likelion/shared";
 
 let passed = 0;
@@ -240,6 +241,73 @@ resetSession();
   // Cleanup
   const { rmSync } = await import("node:fs");
   rmSync(testDir, { recursive: true, force: true });
+}
+
+console.log("\n=== 11. Flow tracker — silence boost ===");
+flowTracker.reset();
+{
+  const ctx = flowTracker.analyze("excitement", 0.8);
+  assert(ctx.silenceBoost === 0, "first event: no silence boost");
+  assert(ctx.phase === "idle", `first event phase: ${ctx.phase}`);
+
+  flowTracker.record("excitement", 0.8, true);
+
+  // Simulate 15s silence by manipulating (we just test the logic)
+  const ctx2 = flowTracker.analyze("victory", 0.9);
+  assert(ctx2.silenceSec < 1, "immediate second event: no silence");
+  assert(ctx2.silenceBoost === 0, "no boost for immediate event");
+}
+
+console.log("\n=== 12. Flow tracker — sustained suppression ===");
+flowTracker.reset();
+{
+  // Fire 3 excitement events rapidly
+  flowTracker.record("excitement", 0.9, true);
+  flowTracker.record("excitement", 0.9, true);
+  flowTracker.record("excitement", 0.9, true);
+
+  const d = decideAction({
+    transcript: "또 대박",
+    category: "excitement",
+    confidence: 0.9,
+    sessionActive: true,
+  });
+  // Should suppress clip due to sustained same category
+  assert(d.action === "TAG_EVENT", `sustained excitement → TAG_EVENT (got ${d.action})`);
+  assert(d.actionReason.includes("sustained"), `reason: ${d.actionReason}`);
+}
+
+console.log("\n=== 13. Flow tracker — turning point ===");
+flowTracker.reset();
+{
+  // Record positive events
+  flowTracker.record("excitement", 0.9, true);
+  flowTracker.record("victory", 0.9, true);
+
+  // Now a negative event — this is a turning point
+  const ctx = flowTracker.analyze("defeat", 0.8);
+  assert(ctx.isTurningPoint === true, "positive→negative is turning point");
+}
+
+console.log("\n=== 14. Flow tracker — adaptive threshold ===");
+flowTracker.reset();
+{
+  // Flood with frustration events
+  for (let i = 0; i < 6; i++) {
+    flowTracker.record("frustration", 0.7, false);
+  }
+  // Now frustration should have raised threshold
+  const ctx = flowTracker.analyze("frustration", 0.65);
+  assert(ctx.adaptiveThreshold > 0.6, `adaptive threshold raised: ${ctx.adaptiveThreshold}`);
+
+  // Decision should ignore due to adaptive threshold
+  const d = decideAction({
+    transcript: "짜증나",
+    category: "frustration",
+    confidence: 0.65,
+    sessionActive: true,
+  });
+  assert(d.action === "IGNORE", `below adaptive threshold → IGNORE (got ${d.action})`);
 }
 
 console.log(`\n${"=".repeat(40)}`);

@@ -14,6 +14,7 @@ import { renameClipForEvent } from "../services/clip-file.service.js";
 import { detectIntent } from "../services/intent-detector.js";
 import { sessionState } from "../services/session-state.js";
 import { decideAction } from "../services/action-decision.service.js";
+import { flowTracker } from "../services/flow-tracker.js";
 import { eventBus } from "../services/event-bus.js";
 
 export const voiceRoute: FastifyPluginAsync = async (app) => {
@@ -49,6 +50,7 @@ export const voiceRoute: FastifyPluginAsync = async (app) => {
         if (decision.action === "START_SESSION") {
           const newSessionId = sessionId || generateSessionId();
           await sessionState.start(newSessionId);
+          flowTracker.reset();
           console.log(`[VoiceCommand] Session started: ${newSessionId}`);
           eventBus.emit({ type: "session_start", payload: { sessionId: newSessionId } });
           reply.status(200);
@@ -116,6 +118,12 @@ export const voiceRoute: FastifyPluginAsync = async (app) => {
         ...classification,
         action: decision.action,
         actionReason: decision.actionReason,
+        metadata: decision.flowContext ? {
+          phase: decision.flowContext.phase,
+          silenceSec: Math.round(decision.flowContext.silenceSec),
+          silenceBoost: decision.flowContext.silenceBoost,
+          isTurningPoint: decision.flowContext.isTurningPoint,
+        } : undefined,
       });
 
       // Only trigger OBS clip when action is SAVE_CLIP
@@ -154,6 +162,9 @@ export const voiceRoute: FastifyPluginAsync = async (app) => {
           await eventRepository.update(event);
         }
       }
+
+      // Record in flow tracker
+      flowTracker.record(event.category, event.confidence, decision.action === "SAVE_CLIP" && !!event.clipSaved);
 
       eventBus.emit({ type: "voice_event", payload: event });
       return { event };

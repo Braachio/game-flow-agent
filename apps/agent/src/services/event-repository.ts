@@ -23,6 +23,7 @@ interface EventInput {
   matchedKeywords: string[];
   action?: import("@likelion/shared").AgentAction;
   actionReason?: string;
+  metadata?: Record<string, unknown>;
 }
 
 class EventRepository {
@@ -70,6 +71,7 @@ class EventRepository {
       matchedKeywords: input.matchedKeywords,
       action: input.action,
       actionReason: input.actionReason,
+      metadata: input.metadata,
     };
     this.events.push(event);
     await writeFile(EVENTS_FILE, JSON.stringify(this.events, null, 2));
