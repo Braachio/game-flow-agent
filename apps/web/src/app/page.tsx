@@ -5,6 +5,7 @@ import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
 import { useObs } from "@/hooks/useObs";
 import { useClipSound } from "@/hooks/useClipSound";
 import { useEventStream } from "@/hooks/useEventStream";
+import { useTTS } from "@/hooks/useTTS";
 import { SessionTimeline } from "@/components/SessionTimeline";
 import Link from "next/link";
 import type { VoiceEvent, SessionReport } from "@likelion/shared";
@@ -33,6 +34,7 @@ export default function Home() {
   const sessionIdRef = useRef<string | null>(null);
   const obs = useObs();
   const playClipSound = useClipSound();
+  const tts = useTTS({ rate: 1.2 });
 
   // SSE: receive real-time events from agent (works across tabs)
   const handleSSE = useCallback((event: { type: string; payload: unknown }) => {
@@ -63,8 +65,11 @@ export default function Home() {
         setSessionActive(false);
         setSessionSummary([...eventsRef.current]);
       }
+    } else if (event.type === "agent_speak") {
+      const p = event.payload as { text: string };
+      tts.speak(p.text);
     }
-  }, [playClipSound]);
+  }, [playClipSound, tts]);
 
   const { connected: sseConnected } = useEventStream({ onEvent: handleSSE });
 
@@ -425,6 +430,19 @@ export default function Home() {
             }`}
           >
             {isListening ? "Voice On" : "Enable Voice"}
+          </button>
+
+          {/* TTS toggle */}
+          <button
+            onClick={tts.toggle}
+            className={`px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
+              tts.enabled
+                ? "bg-purple-600/20 text-purple-400 border border-purple-800"
+                : "bg-gray-800 text-gray-500 border border-gray-700"
+            }`}
+            title={tts.enabled ? "Agent voice on" : "Agent voice off"}
+          >
+            {tts.enabled ? "Agent On" : "Agent Off"}
           </button>
 
           {/* Session button */}

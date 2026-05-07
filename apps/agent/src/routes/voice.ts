@@ -18,6 +18,7 @@ import { flowTracker } from "../services/flow-tracker.js";
 import { eventBus } from "../services/event-bus.js";
 import { captureScreenContext } from "../services/screen-context.service.js";
 import { llmClassify, llmClipTitle, isLLMAvailable } from "../services/llm.service.js";
+import { generateCommentary, generateSessionEndCommentary } from "../services/agent-commentary.service.js";
 
 export const voiceRoute: FastifyPluginAsync = async (app) => {
   app.post<{ Body: VoiceEventRequest }>(
@@ -65,6 +66,14 @@ export const voiceRoute: FastifyPluginAsync = async (app) => {
           sessionState.end();
           console.log(`[VoiceCommand] Session ended: ${endedSessionId}`);
           eventBus.emit({ type: "session_end", payload: { sessionId: endedSessionId || "" } });
+
+          // End-of-session commentary
+          if (endedSessionId) {
+            const sessionEvents = await eventRepository.getBySession(endedSessionId);
+            const clips = sessionEvents.filter((e) => e.clipSaved).length;
+            generateSessionEndCommentary(sessionEvents.length, clips);
+          }
+
           reply.status(200);
           return { command: true, intent: intentResult.intent, transcript, sessionId: endedSessionId || undefined };
         }
@@ -210,6 +219,15 @@ export const voiceRoute: FastifyPluginAsync = async (app) => {
       flowTracker.record(event.category, event.confidence, decision.action === "SAVE_CLIP" && !!event.clipSaved);
 
       eventBus.emit({ type: "voice_event", payload: event });
+
+      // Agent commentary (non-blocking)
+      generateCommentary({
+        event,
+        flowContext: decision.flowContext,
+        clipSaved: !!event.clipSaved,
+        action: decision.action,
+      });
+
       return { event };
     }
   );
