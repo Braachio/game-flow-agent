@@ -35,6 +35,8 @@ export default function Home() {
   const obs = useObs();
   const playClipSound = useClipSound();
   const tts = useTTS({ rate: 1.2 });
+  const ttsRef = useRef(tts);
+  ttsRef.current = tts;
 
   // SSE: receive real-time events from agent (works across tabs)
   const handleSSE = useCallback((event: { type: string; payload: unknown }) => {
@@ -67,9 +69,9 @@ export default function Home() {
       }
     } else if (event.type === "agent_speak") {
       const p = event.payload as { text: string };
-      tts.speak(p.text);
+      ttsRef.current.speak(p.text);
     }
-  }, [playClipSound, tts]);
+  }, [playClipSound]);
 
   const { connected: sseConnected } = useEventStream({ onEvent: handleSSE });
 
