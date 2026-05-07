@@ -7,6 +7,7 @@ import { sessionState } from "../services/session-state.js";
 import { flowTracker } from "../services/flow-tracker.js";
 import { eventRepository } from "../services/event-repository.js";
 import { selectHighlights, generateReel } from "../services/highlight-reel.service.js";
+import { llmSessionSummary } from "../services/llm.service.js";
 
 const DATA_DIR = join(process.cwd(), "data");
 const REPORTS_FILE = join(DATA_DIR, "session-reports.json");
@@ -160,6 +161,39 @@ export const sessionsRoute: FastifyPluginAsync = async (app) => {
         outputPath: result.outputPath,
         error: result.error,
       };
+    }
+  );
+
+  app.post<{ Body: { sessionId: string } }>(
+    "/sessions/ai-summary",
+    async (request) => {
+      const { sessionId } = request.body;
+      if (!sessionId) throw new Error("sessionId is required");
+
+      const events = await eventRepository.getBySession(sessionId);
+      if (events.length === 0) {
+        return { summary: "", error: "No events found" };
+      }
+
+      const report = (await loadReports()).find((r) => r.sessionId === sessionId);
+      const startTime = new Date(events[0].timestamp).getTime();
+      const endTime = new Date(events[events.length - 1].timestamp).getTime();
+
+      const summary = await llmSessionSummary({
+        totalReactions: events.length,
+        clipsSaved: events.filter((e) => e.clipSaved).length,
+        durationSec: (endTime - startTime) / 1000,
+        byCategory: report?.byCategory || {} as Record<string, number>,
+        events: events.map((e) => ({
+          category: e.category,
+          transcript: e.transcript,
+          timestamp: e.timestamp,
+          action: e.action,
+        })),
+      });
+
+      console.log(`[LLM] Session summary generated for ${sessionId}`);
+      return { summary };
     }
   );
 };

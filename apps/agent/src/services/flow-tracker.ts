@@ -26,8 +26,8 @@ export interface FlowContext {
 const WINDOW_SIZE = 10;
 const SILENCE_BOOST_MIN_SEC = 10;
 const SILENCE_BOOST_MAX = 0.4;
-const SUSTAINED_THRESHOLD = 3; // same category N times in a row → sustained
-const CLIP_COOLDOWN_SEC = 8; // suppress clips within N seconds of last clip
+const SUSTAINED_THRESHOLD = 1; // after N consecutive same-category clips → suppress next
+const CLIP_COOLDOWN_SEC = 15; // suppress same-category clips within N seconds of last clip
 
 class FlowTracker {
   private window: FlowEvent[] = [];
@@ -57,10 +57,12 @@ class FlowTracker {
       ? Math.min((silenceSec - SILENCE_BOOST_MIN_SEC) / 30, SILENCE_BOOST_MAX)
       : 0;
 
-    // Category repeat count in recent window
-    const recentSameCategory = this.window
-      .slice(-SUSTAINED_THRESHOLD)
-      .filter((e) => e.category === category).length;
+    // Category repeat count: consecutive same-category events from the end
+    let recentSameCategory = 0;
+    for (let i = this.window.length - 1; i >= 0; i--) {
+      if (this.window[i].category === category) recentSameCategory++;
+      else break;
+    }
 
     // Detect phase
     const phase = this.detectPhase(category, silenceSec, recentSameCategory);

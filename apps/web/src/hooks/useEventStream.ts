@@ -49,6 +49,10 @@ export function useEventStream({ onEvent }: UseEventStreamOptions = {}) {
       onEventRef.current?.({ type: "session_end", payload: JSON.parse(e.data) });
     });
 
+    es.addEventListener("agent_speak", (e) => {
+      onEventRef.current?.({ type: "agent_speak", payload: JSON.parse(e.data) });
+    });
+
     es.onerror = () => {
       setConnected(false);
       // EventSource auto-reconnects

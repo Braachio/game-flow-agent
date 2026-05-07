@@ -67,10 +67,12 @@ export function classify(transcript: string): ClassificationResult {
   // 3. Score each category
   const scores: ScoredCategory[] = [];
 
+  const transcriptNoSpace = transcript.replace(/\s+/g, "");
+
   for (const rule of PHRASE_RULES) {
     const matches: string[] = [];
     for (const phrase of rule.phrases) {
-      if (transcript.includes(phrase)) {
+      if (transcript.includes(phrase) || transcriptNoSpace.includes(phrase.replace(/\s+/g, ""))) {
         matches.push(phrase);
       }
     }

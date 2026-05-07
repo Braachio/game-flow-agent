@@ -1,9 +1,5 @@
-import {
-  COOLDOWN_MS,
-  CONFIDENCE_THRESHOLD,
-  DUPLICATE_WINDOW_MS,
-  type ReactionCategory,
-} from "@likelion/shared";
+import type { ReactionCategory } from "@likelion/shared";
+import { runtimeConfig } from "./runtime-config.js";
 
 type RejectReason = "duplicate" | "cooldown" | "low_confidence";
 
@@ -19,11 +15,12 @@ export class EventGuard {
 
   check(transcript: string, category: ReactionCategory, confidence: number): GuardResult {
     const now = Date.now();
+    const config = runtimeConfig.getCached();
 
     // 1. Low confidence check
-    if (confidence < CONFIDENCE_THRESHOLD) {
+    if (confidence < config.confidenceThreshold) {
       console.log(
-        `[EventGuard] IGNORED (low_confidence): "${transcript}" → ${category} (${(confidence * 100).toFixed(0)}% < ${CONFIDENCE_THRESHOLD * 100}%)`
+        `[EventGuard] IGNORED (low_confidence): "${transcript}" → ${category} (${(confidence * 100).toFixed(0)}% < ${config.confidenceThreshold * 100}%)`
       );
       return { allowed: false, reason: "low_confidence" };
     }
@@ -31,27 +28,26 @@ export class EventGuard {
     // 2. Duplicate transcript check (same text within window)
     if (
       this.lastTranscript === transcript &&
-      now - this.lastTranscriptTime < DUPLICATE_WINDOW_MS
+      now - this.lastTranscriptTime < config.duplicateWindowMs
     ) {
       console.log(
-        `[EventGuard] IGNORED (duplicate): "${transcript}" — same transcript within ${DUPLICATE_WINDOW_MS}ms`
+        `[EventGuard] IGNORED (duplicate): "${transcript}" — same transcript within ${config.duplicateWindowMs}ms`
       );
       return { allowed: false, reason: "duplicate" };
     }
 
     // 3. Same category within duplicate window
     const lastTime = this.lastCategoryTime.get(category) || 0;
-    if (now - lastTime < DUPLICATE_WINDOW_MS) {
+    if (now - lastTime < config.duplicateWindowMs) {
       console.log(
-        `[EventGuard] IGNORED (duplicate): "${transcript}" — same category "${category}" within ${DUPLICATE_WINDOW_MS}ms`
+        `[EventGuard] IGNORED (duplicate): "${transcript}" — same category "${category}" within ${config.duplicateWindowMs}ms`
       );
       return { allowed: false, reason: "duplicate" };
     }
 
     // 4. Category cooldown check
-    const cooldown = COOLDOWN_MS[category];
-    if (now - lastTime < cooldown) {
-      const remaining = cooldown - (now - lastTime);
+    if (now - lastTime < config.cooldownMs) {
+      const remaining = config.cooldownMs - (now - lastTime);
       console.log(
         `[EventGuard] IGNORED (cooldown): "${transcript}" → ${category} — ${remaining}ms remaining`
       );
