@@ -261,19 +261,17 @@ flowTracker.reset();
 console.log("\n=== 12. Flow tracker — sustained suppression ===");
 flowTracker.reset();
 {
-  // Fire 3 excitement events rapidly
-  flowTracker.record("excitement", 0.9, true);
-  flowTracker.record("excitement", 0.9, true);
+  // First excitement clip → allowed
   flowTracker.record("excitement", 0.9, true);
 
+  // Second excitement immediately after → should be suppressed
   const d = decideAction({
     transcript: "또 대박",
     category: "excitement",
     confidence: 0.9,
     sessionActive: true,
   });
-  // Should suppress clip due to sustained same category
-  assert(d.action === "TAG_EVENT", `sustained excitement → TAG_EVENT (got ${d.action})`);
+  assert(d.action === "TAG_EVENT", `2nd consecutive excitement → TAG_EVENT (got ${d.action})`);
   assert(d.actionReason.includes("sustained"), `reason: ${d.actionReason}`);
 }
 

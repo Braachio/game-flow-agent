@@ -52,6 +52,7 @@ export function useSpeechRecognition({
         setInterimText(transcript);
         onInterimRef.current?.(transcript);
       } else {
+        console.log(`[Speech] Final: "${transcript}"`);
         const startTime = speechStartRef.current || performance.now();
         speechStartRef.current = 0;
         setInterimText("");

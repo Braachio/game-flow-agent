@@ -7,7 +7,8 @@ export type BusEvent =
   | { type: "voice_command"; payload: unknown }
   | { type: "obs_status"; payload: unknown }
   | { type: "session_start"; payload: { sessionId: string } }
-  | { type: "session_end"; payload: { sessionId: string } };
+  | { type: "session_end"; payload: { sessionId: string } }
+  | { type: "agent_speak"; payload: { text: string; eventId?: string } };
 
 type Listener = (event: BusEvent) => void;
 
