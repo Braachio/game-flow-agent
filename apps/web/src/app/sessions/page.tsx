@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import type { SessionReport, ReactionCategory } from "@likelion/shared";
+import type { SessionReport, ReactionCategory, VoiceEvent } from "@likelion/shared";
+import { SessionTimeline } from "@/components/SessionTimeline";
 
 const AGENT_URL = process.env.NEXT_PUBLIC_AGENT_URL || "http://localhost:3001";
 
@@ -141,8 +142,25 @@ export default function SessionsPage() {
 }
 
 function SessionDetail({ report }: { report: SessionReport }) {
+  const [events, setEvents] = useState<VoiceEvent[]>([]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch(`${AGENT_URL}/events/by-session?sessionId=${report.sessionId}`);
+        if (res.ok) setEvents(await res.json());
+        else setEvents([]);
+      } catch { setEvents([]); }
+    })();
+  }, [report.sessionId]);
+
   return (
     <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 space-y-5">
+      {/* Timeline visualization */}
+      {events.length > 0 && (
+        <SessionTimeline events={events} startedAt={report.startedAt} endedAt={report.endedAt} />
+      )}
+
       {/* Header */}
       <div>
         <h2 className="text-lg font-bold">{formatDate(report.startedAt)}</h2>

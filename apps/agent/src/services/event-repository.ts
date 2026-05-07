@@ -78,6 +78,11 @@ class EventRepository {
     return event;
   }
 
+  async getBySession(sessionId: string): Promise<VoiceEvent[]> {
+    await this.init();
+    return this.events.filter((e) => e.sessionId === sessionId);
+  }
+
   async update(event: VoiceEvent): Promise<void> {
     await this.init();
     const idx = this.events.findIndex((e) => e.id === event.id);
