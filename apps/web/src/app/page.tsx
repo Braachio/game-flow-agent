@@ -5,6 +5,7 @@ import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
 import { useObs } from "@/hooks/useObs";
 import { useClipSound } from "@/hooks/useClipSound";
 import { useEventStream } from "@/hooks/useEventStream";
+import { SessionTimeline } from "@/components/SessionTimeline";
 import Link from "next/link";
 import type { VoiceEvent, SessionReport } from "@likelion/shared";
 
@@ -32,7 +33,40 @@ export default function Home() {
   const sessionIdRef = useRef<string | null>(null);
   const obs = useObs();
   const playClipSound = useClipSound();
-  const { connected: sseConnected } = useEventStream();
+
+  // SSE: receive real-time events from agent (works across tabs)
+  const handleSSE = useCallback((event: { type: string; payload: unknown }) => {
+    if (event.type === "voice_event") {
+      const e = event.payload as VoiceEvent;
+      // Only add if it belongs to our session
+      if (!sessionIdRef.current || e.sessionId === sessionIdRef.current) {
+        setEvents((prev) => {
+          if (prev.some((p) => p.id === e.id)) return prev;
+          return [...prev, e];
+        });
+        setLastEvent(e);
+        if (e.clipSaved) {
+          setClipCount((c) => c + 1);
+          playClipSound();
+        }
+      }
+    } else if (event.type === "session_start") {
+      const p = event.payload as { sessionId: string };
+      // Another client started a session — sync state
+      if (!sessionIdRef.current) {
+        sessionIdRef.current = p.sessionId;
+        setSessionActive(true);
+      }
+    } else if (event.type === "session_end") {
+      // Another client ended the session
+      if (sessionIdRef.current) {
+        setSessionActive(false);
+        setSessionSummary([...eventsRef.current]);
+      }
+    }
+  }, [playClipSound]);
+
+  const { connected: sseConnected } = useEventStream({ onEvent: handleSSE });
 
   // --- Session control ---
 
@@ -310,8 +344,17 @@ export default function Home() {
       {/* Session summary overlay */}
       {sessionSummary && sessionSummary.length > 0 && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-gray-900 border border-gray-700 rounded-2xl p-6 max-w-md w-full animate-fade-in">
+          <div className="bg-gray-900 border border-gray-700 rounded-2xl p-6 max-w-lg w-full animate-fade-in">
             <h2 className="text-lg font-bold mb-4">Session Complete</h2>
+            {sessionSummary.length > 0 && (
+              <div className="mb-4">
+                <SessionTimeline
+                  events={sessionSummary}
+                  startedAt={sessionSummary[0].timestamp}
+                  endedAt={sessionSummary[sessionSummary.length - 1].timestamp}
+                />
+              </div>
+            )}
             <div className="grid grid-cols-3 gap-3 mb-4">
               <div className="bg-gray-800 rounded-lg p-3 text-center">
                 <div className="text-2xl font-bold">{sessionSummary.length}</div>

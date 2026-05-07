@@ -1,6 +1,8 @@
 import OBSWebSocket from "obs-websocket-js";
 import type { VoiceEvent, ObsStatus, ReactionCategory } from "@likelion/shared";
 import { eventBus } from "./event-bus.js";
+import { recommendClipDuration } from "./clip-duration.service.js";
+import type { FlowContext } from "./flow-tracker.js";
 
 const CLIP_CATEGORIES: ReactionCategory[] = ["excitement", "victory", "surprise"];
 
@@ -18,6 +20,11 @@ class ObsService {
 
   get connected() {
     return this._connected;
+  }
+
+  /** Access the raw OBS WebSocket instance for advanced calls */
+  get rawSocket() {
+    return this.obs;
   }
 
   get replayBufferActive() {
@@ -138,7 +145,7 @@ class ObsService {
     return CLIP_CATEGORIES.includes(category);
   }
 
-  async triggerClipForEvent(event: VoiceEvent): Promise<ObsClipResult> {
+  async triggerClipForEvent(event: VoiceEvent, flowContext?: FlowContext | null): Promise<ObsClipResult> {
     if (!this.shouldTriggerClip(event.category)) {
       console.log(
         `[OBS] Replay save skipped: category "${event.category}" is not clip-worthy`
@@ -164,14 +171,30 @@ class ObsService {
       return { clipSaved: false, obsTriggeredAt: triggeredAt, obsError: reason };
     }
 
+    // Adjust replay buffer duration based on flow context
+    const { durationSec, reason: durationReason } = recommendClipDuration(flowContext);
+    await this.setReplayBufferDuration(durationSec);
+    console.log(`[OBS] Clip duration: ${durationSec}s (${durationReason})`);
+
     try {
       await this.obs.call("SaveReplayBuffer");
-      console.log(`[OBS] Replay saved for event ${event.id}`);
+      console.log(`[OBS] Replay saved for event ${event.id} (${durationSec}s)`);
       return { clipSaved: true, obsTriggeredAt: triggeredAt };
     } catch (err: unknown) {
       const reason = this.formatError(err);
       console.error(`[OBS] Replay save failed for event ${event.id}: ${reason}`);
       return { clipSaved: false, obsTriggeredAt: triggeredAt, obsError: reason };
+    }
+  }
+
+  private async setReplayBufferDuration(seconds: number): Promise<void> {
+    try {
+      await this.obs.call("SetOutputSettings", {
+        outputName: "Replay Buffer",
+        outputSettings: { max_time_sec: seconds },
+      });
+    } catch {
+      // Not all OBS versions support this — silently ignore
     }
   }
 

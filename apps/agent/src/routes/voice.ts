@@ -16,6 +16,7 @@ import { sessionState } from "../services/session-state.js";
 import { decideAction } from "../services/action-decision.service.js";
 import { flowTracker } from "../services/flow-tracker.js";
 import { eventBus } from "../services/event-bus.js";
+import { captureScreenContext } from "../services/screen-context.service.js";
 
 export const voiceRoute: FastifyPluginAsync = async (app) => {
   app.post<{ Body: VoiceEventRequest }>(
@@ -128,7 +129,7 @@ export const voiceRoute: FastifyPluginAsync = async (app) => {
 
       // Only trigger OBS clip when action is SAVE_CLIP
       if (decision.action === "SAVE_CLIP") {
-        const clipResult = await obsService.triggerClipForEvent(event);
+        const clipResult = await obsService.triggerClipForEvent(event, decision.flowContext);
 
         if (clipResult.obsTriggeredAt) {
           event.clipSaved = clipResult.clipSaved;
@@ -157,6 +158,16 @@ export const voiceRoute: FastifyPluginAsync = async (app) => {
             if (fileResult.clipMoveError) {
               event.clipMoveError = fileResult.clipMoveError;
             }
+          }
+
+          // Capture screen context for additional metadata
+          const screenCtx = await captureScreenContext();
+          if (screenCtx.gameEvents.length > 0 || screenCtx.scoreInfo) {
+            event.metadata = {
+              ...event.metadata as Record<string, unknown>,
+              screenGameEvents: screenCtx.gameEvents,
+              screenScore: screenCtx.scoreInfo,
+            };
           }
 
           await eventRepository.update(event);

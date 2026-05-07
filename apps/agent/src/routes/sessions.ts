@@ -5,6 +5,8 @@ import { generateSessionId } from "@likelion/shared";
 import type { SessionReport, SessionStartResponse } from "@likelion/shared";
 import { sessionState } from "../services/session-state.js";
 import { flowTracker } from "../services/flow-tracker.js";
+import { eventRepository } from "../services/event-repository.js";
+import { selectHighlights, generateReel } from "../services/highlight-reel.service.js";
 
 const DATA_DIR = join(process.cwd(), "data");
 const REPORTS_FILE = join(DATA_DIR, "session-reports.json");
@@ -122,6 +124,42 @@ export const sessionsRoute: FastifyPluginAsync = async (app) => {
       }
 
       return report;
+    }
+  );
+
+  app.post<{ Body: { sessionId: string; maxClips?: number } }>(
+    "/sessions/highlight",
+    async (request) => {
+      const { sessionId, maxClips } = request.body;
+      if (!sessionId) throw new Error("sessionId is required");
+
+      const events = await eventRepository.getBySession(sessionId);
+      const highlights = selectHighlights(events, maxClips || 5);
+
+      if (highlights.length === 0) {
+        return { clips: [], error: "No clipped events found for this session" };
+      }
+
+      // Determine output directory
+      const report = (await loadReports()).find((r) => r.sessionId === sessionId);
+      const outputDir = report?.sessionFolderPath || process.env.OBS_RECORDING_DIR || join(process.cwd(), "data");
+
+      const result = await generateReel(highlights, outputDir, sessionId);
+
+      console.log(`[Highlight] Session ${sessionId}: ${highlights.length} clips selected, reel: ${result.outputPath || "not generated"}`);
+
+      return {
+        clips: result.clips.map((c) => ({
+          filename: c.event.clipFilename,
+          path: c.event.renamedFilePath,
+          category: c.event.category,
+          transcript: c.event.transcript,
+          score: Math.round(c.score * 100) / 100,
+          reason: c.reason,
+        })),
+        outputPath: result.outputPath,
+        error: result.error,
+      };
     }
   );
 };

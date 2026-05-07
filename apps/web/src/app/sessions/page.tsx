@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import type { SessionReport, ReactionCategory } from "@likelion/shared";
+import type { SessionReport, ReactionCategory, VoiceEvent } from "@likelion/shared";
+import { SessionTimeline } from "@/components/SessionTimeline";
 
 const AGENT_URL = process.env.NEXT_PUBLIC_AGENT_URL || "http://localhost:3001";
 
@@ -141,8 +142,25 @@ export default function SessionsPage() {
 }
 
 function SessionDetail({ report }: { report: SessionReport }) {
+  const [events, setEvents] = useState<VoiceEvent[]>([]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch(`${AGENT_URL}/events/by-session?sessionId=${report.sessionId}`);
+        if (res.ok) setEvents(await res.json());
+        else setEvents([]);
+      } catch { setEvents([]); }
+    })();
+  }, [report.sessionId]);
+
   return (
     <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 space-y-5">
+      {/* Timeline visualization */}
+      {events.length > 0 && (
+        <SessionTimeline events={events} startedAt={report.startedAt} endedAt={report.endedAt} />
+      )}
+
       {/* Header */}
       <div>
         <h2 className="text-lg font-bold">{formatDate(report.startedAt)}</h2>
@@ -227,11 +245,69 @@ function SessionDetail({ report }: { report: SessionReport }) {
         </div>
       )}
 
+      {/* Highlight Reel */}
+      <HighlightButton sessionId={report.sessionId} />
+
       {/* Session folder */}
       {report.sessionFolderPath && (
         <p className="text-xs text-gray-600 truncate" title={report.sessionFolderPath}>
           Folder: {report.sessionFolderPath}
         </p>
+      )}
+    </div>
+  );
+}
+
+function HighlightButton({ sessionId }: { sessionId: string }) {
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<{ clips: Array<{ filename: string; score: number; reason: string; category: string; transcript: string }>; outputPath?: string; error?: string } | null>(null);
+
+  const generate = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${AGENT_URL}/sessions/highlight`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId, maxClips: 5 }),
+      });
+      if (res.ok) setResult(await res.json());
+    } catch {} finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div>
+      {!result ? (
+        <button
+          onClick={generate}
+          disabled={loading}
+          className="px-4 py-2 bg-purple-600 hover:bg-purple-500 disabled:bg-gray-700 rounded-lg text-sm font-medium transition-colors"
+        >
+          {loading ? "Generating..." : "Generate Highlight Reel"}
+        </button>
+      ) : (
+        <div className="space-y-2">
+          <h3 className="text-sm font-semibold text-gray-400">Highlights (Top {result.clips.length})</h3>
+          {result.error && (
+            <p className="text-xs text-yellow-500">{result.error}</p>
+          )}
+          {result.outputPath && (
+            <p className="text-xs text-green-400 truncate" title={result.outputPath}>
+              Reel: {result.outputPath}
+            </p>
+          )}
+          <div className="space-y-1">
+            {result.clips.map((c, i) => (
+              <div key={i} className="bg-gray-800 rounded px-3 py-1.5 text-xs flex items-center gap-2">
+                <span className="font-bold text-purple-400">#{i + 1}</span>
+                <span className={CATEGORY_COLORS[c.category]}>{CATEGORY_LABELS[c.category]}</span>
+                <span className="text-gray-300 flex-1 truncate">{c.transcript}</span>
+                <span className="text-gray-500" title={c.reason}>{c.score}</span>
+              </div>
+            ))}
+          </div>
+        </div>
       )}
     </div>
   );
