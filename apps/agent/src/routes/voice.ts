@@ -22,6 +22,7 @@ import { llmClassify, llmClipTitle, llmReact, llmDecideAfterResponse, isLLMAvail
 import { generateCommentary, generateSessionEndCommentary } from "../services/agent-commentary.service.js";
 import { generateSpeech } from "../services/tts.service.js";
 import { handleDirectCommand } from "../services/agent-direct.service.js";
+import { detectWakeWord, isWaitingForCommand, startWaiting, consumeWaiting } from "../services/wake-word.service.js";
 import { conversationManager } from "../services/conversation.service.js";
 
 export const voiceRoute: FastifyPluginAsync = async (app) => {
@@ -37,12 +38,24 @@ export const voiceRoute: FastifyPluginAsync = async (app) => {
 
       console.log(`[Voice] Received: "${transcript}"`);
 
-      // Wake word detection: "자비스" triggers direct agent mode
-      const wakeWords = ["자비스", "쟈비스", "자바스", "쟈바스"];
-      const hasWakeWord = wakeWords.some((w) => transcript.includes(w));
-      if (hasWakeWord) {
-        const command = transcript.replace(/자비스|쟈비스|자바스|쟈바스/g, "").trim();
-        console.log(`[Agent] Wake word detected. Command: "${command}"`);
+      // Wake word "자비스" → direct agent mode
+      const wake = detectWakeWord(transcript);
+      if (wake.hasWakeWord || isWaitingForCommand()) {
+        const command = wake.hasWakeWord ? wake.command : consumeWaiting(transcript);
+
+        // "자비스" alone with no command → wait for next utterance
+        if (!command && wake.hasWakeWord) {
+          console.log(`[Agent] Wake word only — waiting for command...`);
+          startWaiting();
+          const tts = await generateSpeech("응?");
+          reply.status(200);
+          return {
+            agentSpeech: "응?",
+            agentAudioUrl: tts.error ? undefined : `/tts/audio/${tts.filename}`,
+          };
+        }
+
+        console.log(`[Agent] Command: "${command}"`);
         const result = await handleDirectCommand(command, sessionId);
         const tts = await generateSpeech(result.speech);
         reply.status(200);
