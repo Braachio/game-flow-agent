@@ -20,7 +20,6 @@ import { eventBus } from "../services/event-bus.js";
 import { captureScreenContext } from "../services/screen-context.service.js";
 import { llmClassify, llmClipTitle, llmReact, llmDecideAfterResponse, isLLMAvailable, recordAction, resetSessionMemory } from "../services/llm.service.js";
 import { generateCommentary, generateSessionEndCommentary } from "../services/agent-commentary.service.js";
-import { generateSpeech } from "../services/tts.service.js";
 import { handleDirectCommand } from "../services/agent-direct.service.js";
 import { detectWakeWord, isWaitingForCommand, startWaiting, consumeWaiting } from "../services/wake-word.service.js";
 import { conversationManager } from "../services/conversation.service.js";
@@ -47,21 +46,15 @@ export const voiceRoute: FastifyPluginAsync = async (app) => {
         if (!command && wake.hasWakeWord) {
           console.log(`[Agent] Wake word only — waiting for command...`);
           startWaiting();
-          const tts = await generateSpeech("응?");
           reply.status(200);
-          return {
-            agentSpeech: "응?",
-            agentAudioUrl: tts.error ? undefined : `/tts/audio/${tts.filename}`,
-          };
+          return { agentSpeech: "응?" };
         }
 
         console.log(`[Agent] Command: "${command}"`);
         const result = await handleDirectCommand(command, sessionId);
-        const tts = await generateSpeech(result.speech);
         reply.status(200);
         return {
           agentSpeech: result.speech,
-          agentAudioUrl: tts.error ? undefined : `/tts/audio/${tts.filename}`,
           agentAction: result.action,
         };
       }
@@ -99,9 +92,8 @@ export const voiceRoute: FastifyPluginAsync = async (app) => {
             }
           }
 
-          const convTts = await generateSpeech(decision.response);
           reply.status(200);
-          return { ignored: true, reason: "low_confidence" as const, agentSpeech: decision.response, agentAudioUrl: convTts.error ? undefined : `/tts/audio/${convTts.filename}` };
+          return { ignored: true, reason: "low_confidence" as const, agentSpeech: decision.response };
         }
       }
 
@@ -265,16 +257,8 @@ export const voiceRoute: FastifyPluginAsync = async (app) => {
       }
       // SKIP = do nothing, just speak
 
-      // Generate Edge TTS audio (non-blocking for speed, include URL in response)
-      let agentAudioUrl: string | undefined;
-      if (reaction.speech) {
-        const tts = await generateSpeech(reaction.speech);
-        if (!tts.error) {
-          agentAudioUrl = `/tts/audio/${tts.filename}`;
-        }
-      }
-
-      return { event, agentSpeech: reaction.speech, agentAudioUrl };
+      // Return text immediately — frontend requests TTS separately
+      return { event, agentSpeech: reaction.speech };
     }
   );
 };

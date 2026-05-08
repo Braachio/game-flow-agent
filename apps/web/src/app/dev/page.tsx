@@ -161,18 +161,25 @@ export default function Home() {
             playClipSound();
           }
         }
-        // Agent speaks — play Edge TTS audio, fallback to Web Speech
-        if (data.agentAudioUrl) {
-          const audio = new Audio(`${AGENT_URL}${data.agentAudioUrl}`);
-          audio.play().catch(() => {});
-        } else if (data.agentSpeech) {
-          const synth = window.speechSynthesis;
-          if (synth) {
-            const u = new SpeechSynthesisUtterance(data.agentSpeech);
-            u.lang = "ko-KR";
-            u.rate = 1.2;
-            synth.speak(u);
-          }
+        // Agent speaks — request TTS async, play when ready
+        if (data.agentSpeech) {
+          fetch(`${AGENT_URL}/tts/speak`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text: data.agentSpeech }),
+          })
+            .then((r) => r.json())
+            .then((tts) => {
+              if (tts.audioUrl) {
+                new Audio(`${AGENT_URL}${tts.audioUrl}`).play().catch(() => {});
+              }
+            })
+            .catch(() => {
+              const u = new SpeechSynthesisUtterance(data.agentSpeech);
+              u.lang = "ko-KR";
+              u.rate = 1.2;
+              speechSynthesis?.speak(u);
+            });
         }
         fetchStats();
         fetchMetrics();
