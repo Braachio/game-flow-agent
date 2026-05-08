@@ -140,8 +140,11 @@ export default function Home() {
             playClipSound();
           }
         }
-        // Agent speaks — direct from HTTP response
-        if (data.agentSpeech) {
+        // Agent speaks — play Edge TTS audio, fallback to Web Speech
+        if (data.agentAudioUrl) {
+          const audio = new Audio(`${AGENT_URL}${data.agentAudioUrl}`);
+          audio.play().catch(() => {});
+        } else if (data.agentSpeech) {
           const synth = window.speechSynthesis;
           if (synth) {
             const u = new SpeechSynthesisUtterance(data.agentSpeech);

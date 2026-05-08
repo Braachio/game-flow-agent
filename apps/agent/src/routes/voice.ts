@@ -20,6 +20,7 @@ import { eventBus } from "../services/event-bus.js";
 import { captureScreenContext } from "../services/screen-context.service.js";
 import { llmClassify, llmClipTitle, llmReact, llmDecideAfterResponse, isLLMAvailable, recordAction, resetSessionMemory } from "../services/llm.service.js";
 import { generateCommentary, generateSessionEndCommentary } from "../services/agent-commentary.service.js";
+import { generateSpeech } from "../services/tts.service.js";
 import { conversationManager } from "../services/conversation.service.js";
 
 export const voiceRoute: FastifyPluginAsync = async (app) => {
@@ -68,8 +69,9 @@ export const voiceRoute: FastifyPluginAsync = async (app) => {
             }
           }
 
+          const convTts = await generateSpeech(decision.response);
           reply.status(200);
-          return { ignored: true, reason: "low_confidence" as const, agentSpeech: decision.response };
+          return { ignored: true, reason: "low_confidence" as const, agentSpeech: decision.response, agentAudioUrl: convTts.error ? undefined : `/tts/audio/${convTts.filename}` };
         }
       }
 
@@ -233,7 +235,16 @@ export const voiceRoute: FastifyPluginAsync = async (app) => {
       }
       // SKIP = do nothing, just speak
 
-      return { event, agentSpeech: reaction.speech };
+      // Generate Edge TTS audio (non-blocking for speed, include URL in response)
+      let agentAudioUrl: string | undefined;
+      if (reaction.speech) {
+        const tts = await generateSpeech(reaction.speech);
+        if (!tts.error) {
+          agentAudioUrl = `/tts/audio/${tts.filename}`;
+        }
+      }
+
+      return { event, agentSpeech: reaction.speech, agentAudioUrl };
     }
   );
 };
