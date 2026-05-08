@@ -148,14 +148,14 @@ console.log("\n=== 5. IGNORE does not store events (neutral / low confidence) ==
   });
   assert(d2.action === "IGNORE", "neutral → IGNORE");
 
-  // Low confidence on any category
+  // Low confidence on any category (below 0.4 threshold)
   const d3 = decideAction({
     transcript: "와",
     category: "excitement",
-    confidence: 0.5,
+    confidence: 0.3,
     sessionActive: true,
   });
-  assert(d3.action === "IGNORE", "excitement but conf<0.6 → IGNORE");
+  assert(d3.action === "IGNORE", "excitement but conf<0.4 → IGNORE");
 }
 
 console.log("\n=== 6. Intent detection integration ===");
@@ -290,19 +290,19 @@ flowTracker.reset();
 console.log("\n=== 14. Flow tracker — adaptive threshold ===");
 flowTracker.reset();
 {
-  // Flood with frustration events
-  for (let i = 0; i < 6; i++) {
+  // Flood with frustration events (need 10+ and >60% dominance)
+  for (let i = 0; i < 12; i++) {
     flowTracker.record("frustration", 0.7, false);
   }
   // Now frustration should have raised threshold
-  const ctx = flowTracker.analyze("frustration", 0.65);
-  assert(ctx.adaptiveThreshold > 0.6, `adaptive threshold raised: ${ctx.adaptiveThreshold}`);
+  const ctx = flowTracker.analyze("frustration", 0.55);
+  assert(ctx.adaptiveThreshold > 0.4, `adaptive threshold raised: ${ctx.adaptiveThreshold}`);
 
   // Decision should ignore due to adaptive threshold
   const d = decideAction({
     transcript: "짜증나",
     category: "frustration",
-    confidence: 0.65,
+    confidence: 0.55,
     sessionActive: true,
   });
   assert(d.action === "IGNORE", `below adaptive threshold → IGNORE (got ${d.action})`);

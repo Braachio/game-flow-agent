@@ -140,15 +140,15 @@ class FlowTracker {
   }
 
   private getAdaptiveThreshold(category: ReactionCategory): number {
-    if (this.totalEvents < 5) return 0.6; // not enough data
+    if (this.totalEvents < 10) return 0.4; // be lenient early
 
     const catCount = this.categoryCounts[category] || 0;
     const ratio = catCount / this.totalEvents;
 
-    // If this category fires > 40% of the time, raise threshold
-    if (ratio > 0.4) return 0.75;
-    if (ratio > 0.3) return 0.7;
-    return 0.6;
+    // Only raise threshold if a category dominates heavily
+    if (ratio > 0.6) return 0.7;
+    if (ratio > 0.5) return 0.6;
+    return 0.4;
   }
 }
 

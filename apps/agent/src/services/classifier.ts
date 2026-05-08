@@ -283,7 +283,7 @@ function detectRepetitionCategory(transcript: string): { category: ReactionCateg
 
 function isStrongSingleChar(char: string): boolean {
   // Single chars that are meaningful keywords on their own (when not noise)
-  const strong = new Set(["킬", "겟"]);
+  const strong = new Set(["킬", "겟", "헐", "헉"]);
   return strong.has(char);
 }
 

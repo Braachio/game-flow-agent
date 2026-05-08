@@ -49,11 +49,12 @@ export const voiceRoute: FastifyPluginAsync = async (app) => {
           console.log(`[Conversation] LLM decision: ${decision.action} — "${decision.response}"`);
           conversationManager.conclude(decision.response, decision.action as AgentAction);
 
-          // Execute the action
+          // Execute the action — force=true bypasses category filter (user confirmed)
           if (decision.action === "SAVE_CLIP" && convCtx.triggerEvent) {
             const event = convCtx.triggerEvent;
+            event.action = "SAVE_CLIP";
             event.actionReason = `conversation: ${decision.response}`;
-            const clipResult = await obsService.triggerClipForEvent(event, convCtx.triggerFlow);
+            const clipResult = await obsService.triggerClipForEvent(event, convCtx.triggerFlow, true);
             if (clipResult.obsTriggeredAt) {
               event.clipSaved = clipResult.clipSaved;
               event.obsTriggeredAt = clipResult.obsTriggeredAt;

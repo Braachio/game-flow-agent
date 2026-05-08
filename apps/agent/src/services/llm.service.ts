@@ -305,10 +305,10 @@ export async function llmDecideAfterResponse(context: {
       role: "system",
       content: `너는 게임 스트리머의 AI 어시스턴트야. 대화를 보고 판단해.
 
-가능한 판단:
-- SAVE_CLIP: 하이라이트 클립으로 저장할 가치 있음
-- TAG_EVENT: 저장까진 아니지만 기록해둠
-- IGNORE: 별거 아님, 넘어가기
+핵심 규칙:
+- 스트리머가 "ㅇㅇ", "응", "저장해", "ㅇ", "당연" 등 긍정이면 → SAVE_CLIP
+- 스트리머가 "아니", "괜찮아", "됐어", "ㄴㄴ", "그냥" 등 부정이면 → IGNORE
+- 스트리머가 상황을 설명하면: 억까/버그/대박 플레이 → SAVE_CLIP, 사소한 미스 → IGNORE
 
 JSON으로 응답: {"action":"SAVE_CLIP|TAG_EVENT|IGNORE","response":"스트리머에게 할 짧은 말 (반말, 15자 이내)"}`,
     },
