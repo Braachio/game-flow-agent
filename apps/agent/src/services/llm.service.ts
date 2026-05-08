@@ -260,38 +260,32 @@ export async function llmShouldAsk(context: {
   confidence: number;
   isTurningPoint?: boolean;
   recentTranscripts?: string[];
-}): Promise<{ ask: boolean; question?: string; action?: string; comment?: string }> {
+}): Promise<{ ask: boolean; question?: string }> {
   const { text, error } = await chat([
     {
       role: "system",
-      content: `너는 게임 스트리머의 AI 어시스턴트야. 스트리머가 감정적 반응을 했어.
-판단해: 바로 클립 저장할지, 아니면 무슨 상황인지 물어볼지.
+      content: `너는 게임 스트리머의 AI 어시스턴트야. 스트리머가 게임 중 감정적 반응을 했어.
+스트리머에게 짧게 물어봐 — 클립 저장할지 확인하거나, 무슨 상황인지 물어봐.
 
 규칙:
-- 반응이 명확하면 (흥분, 승리) → 바로 저장
-- 반응이 부정적이거나 애매하면 (짜증, 놀람) → 무슨 상황인지 짧게 물어봐
-- 물어볼 때: 한 문장, 반말, 10자 이내
-
-JSON으로만 응답:
-바로 저장: {"ask":false,"action":"SAVE_CLIP","comment":"저장 관련 한마디"}
-물어볼 때: {"ask":true,"question":"물어볼 말"}`,
+- 한 문장, 반말, 15자 이내
+- 상황에 맞게 자연스럽게
+- 예시: "지금 거 저장할까?", "뭐였어?", "오 방금 뭐야?", "저장해둘까?"
+- 텍스트만 출력 (따옴표, JSON 없이)`,
     },
     {
       role: "user",
       content: `발화: "${context.transcript}"
-감정: ${context.category} (confidence: ${Math.round(context.confidence * 100)}%)
+감정: ${context.category}
 ${context.isTurningPoint ? "흐름 반전 상황" : ""}
 최근: ${context.recentTranscripts?.slice(-2).map(t => `"${t}"`).join(", ") || "없음"}`,
     },
-  ], { temperature: 0.5, maxTokens: 80 });
+  ], { temperature: 0.7, maxTokens: 32 });
 
-  if (error || !text) return { ask: false, action: "SAVE_CLIP", comment: "클립 저장." };
+  if (error || !text) return { ask: true, question: "저장할까?" };
 
-  try {
-    return JSON.parse(text);
-  } catch {
-    return { ask: false, action: "SAVE_CLIP", comment: "클립 저장." };
-  }
+  const question = text.replace(/["""'''\n]/g, "").trim();
+  return { ask: true, question: question || "저장할까?" };
 }
 
 /**

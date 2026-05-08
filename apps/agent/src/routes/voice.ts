@@ -191,67 +191,8 @@ export const voiceRoute: FastifyPluginAsync = async (app) => {
         } : undefined,
       });
 
-      // Only trigger OBS clip when action is SAVE_CLIP
-      if (decision.action === "SAVE_CLIP") {
-        const clipResult = await obsService.triggerClipForEvent(event, decision.flowContext);
-
-        if (clipResult.obsTriggeredAt) {
-          event.clipSaved = clipResult.clipSaved;
-          event.obsTriggeredAt = clipResult.obsTriggeredAt;
-          if (clipResult.obsError) {
-            event.obsError = clipResult.obsError;
-          }
-
-          if (clipResult.clipSaved) {
-            const fileResult = await renameClipForEvent(event, sessionState.getFolderPath());
-            if (fileResult.clipFilename) {
-              event.clipFilename = fileResult.clipFilename;
-            }
-            if (fileResult.originalFilePath) {
-              event.originalFilePath = fileResult.originalFilePath;
-            }
-            if (fileResult.renamedFilePath) {
-              event.renamedFilePath = fileResult.renamedFilePath;
-            }
-            if (fileResult.sessionFolderPath) {
-              event.sessionFolderPath = fileResult.sessionFolderPath;
-            }
-            if (fileResult.clipRenameError) {
-              event.clipRenameError = fileResult.clipRenameError;
-            }
-            if (fileResult.clipMoveError) {
-              event.clipMoveError = fileResult.clipMoveError;
-            }
-          }
-
-          // Capture screen context for additional metadata
-          const screenCtx = await captureScreenContext();
-          if (screenCtx.gameEvents.length > 0 || screenCtx.scoreInfo) {
-            event.metadata = {
-              ...event.metadata as Record<string, unknown>,
-              screenGameEvents: screenCtx.gameEvents,
-              screenScore: screenCtx.scoreInfo,
-            };
-          }
-
-          // LLM clip title (non-blocking, best-effort)
-          const meta = event.metadata as Record<string, unknown> | undefined;
-          llmClipTitle({
-            transcript: event.transcript,
-            category: event.category,
-            isTurningPoint: !!meta?.isTurningPoint,
-            phase: meta?.phase as string,
-          }).then((title) => {
-            if (title) {
-              event.metadata = { ...event.metadata as Record<string, unknown>, clipTitle: title };
-              eventRepository.update(event);
-              console.log(`[LLM] Clip title: "${title}" for "${event.transcript}"`);
-            }
-          });
-
-          await eventRepository.update(event);
-        }
-      }
+      // NOTE: OBS clip is NOT saved here anymore.
+      // Clips are only saved after user confirms via conversation.
 
       // Record in flow tracker
       // Record based on action decision, not OBS result (suppression should work even without OBS)
@@ -259,37 +200,19 @@ export const voiceRoute: FastifyPluginAsync = async (app) => {
 
       eventBus.emit({ type: "voice_event", payload: event });
 
-      // Agent response — conversational or direct commentary
+      // Agent always asks user before saving — LLM generates contextual question
       (async () => {
-        // For SAVE_CLIP actions with high confidence: direct comment
-        // For TAG_EVENT or ambiguous: ask the user via LLM
-        if (decision.action === "SAVE_CLIP") {
-          // Clear-cut clip — generate commentary directly
-          generateCommentary({
-            event,
-            flowContext: decision.flowContext,
-            clipSaved: true,
-            action: decision.action,
-          });
-        } else if (decision.action === "TAG_EVENT") {
-          // Interesting but not clipped — maybe ask the user?
-          const shouldAsk = await llmShouldAsk({
-            transcript: event.transcript,
-            category: event.category,
-            confidence: event.confidence,
-            isTurningPoint: decision.flowContext?.isTurningPoint,
-          });
+        if (decision.action === "IGNORE") return;
 
-          if (shouldAsk.ask && shouldAsk.question) {
-            conversationManager.startConversation(event, shouldAsk.question, decision.flowContext || undefined);
-          } else if (shouldAsk.comment) {
-            generateCommentary({
-              event,
-              flowContext: decision.flowContext,
-              clipSaved: false,
-              action: decision.action,
-            });
-          }
+        const shouldAsk = await llmShouldAsk({
+          transcript: event.transcript,
+          category: event.category,
+          confidence: event.confidence,
+          isTurningPoint: decision.flowContext?.isTurningPoint,
+        });
+
+        if (shouldAsk.question) {
+          conversationManager.startConversation(event, shouldAsk.question, decision.flowContext || undefined);
         }
       })();
 

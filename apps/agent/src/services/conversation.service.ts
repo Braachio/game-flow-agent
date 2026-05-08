@@ -105,13 +105,9 @@ class ConversationManager {
   }
 
   private handleTimeout(): void {
-    // Save clip as fallback on timeout (reaction was strong enough to ask)
-    const event = this.ctx.triggerEvent;
-    if (event) {
-      const msg = "응답 없어서 일단 클립 저장해둘게.";
-      eventBus.emit({ type: "agent_speak", payload: { text: msg } });
-      console.log(`[Conversation] Timeout fallback: save clip`);
-    }
+    const msg = "괜찮아, 넘어갈게.";
+    eventBus.emit({ type: "agent_speak", payload: { text: msg } });
+    console.log(`[Conversation] Timeout — skipping`);
     this.reset();
   }
 
