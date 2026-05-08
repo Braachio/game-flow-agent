@@ -21,6 +21,7 @@ import { captureScreenContext } from "../services/screen-context.service.js";
 import { llmClassify, llmClipTitle, llmReact, llmDecideAfterResponse, isLLMAvailable, recordAction, resetSessionMemory } from "../services/llm.service.js";
 import { generateCommentary, generateSessionEndCommentary } from "../services/agent-commentary.service.js";
 import { generateSpeech } from "../services/tts.service.js";
+import { handleDirectCommand } from "../services/agent-direct.service.js";
 import { conversationManager } from "../services/conversation.service.js";
 
 export const voiceRoute: FastifyPluginAsync = async (app) => {
@@ -35,6 +36,22 @@ export const voiceRoute: FastifyPluginAsync = async (app) => {
       }
 
       console.log(`[Voice] Received: "${transcript}"`);
+
+      // Wake word detection: "자비스" triggers direct agent mode
+      const wakeWords = ["자비스", "쟈비스", "자바스", "쟈바스"];
+      const hasWakeWord = wakeWords.some((w) => transcript.includes(w));
+      if (hasWakeWord) {
+        const command = transcript.replace(/자비스|쟈비스|자바스|쟈바스/g, "").trim();
+        console.log(`[Agent] Wake word detected. Command: "${command}"`);
+        const result = await handleDirectCommand(command, sessionId);
+        const tts = await generateSpeech(result.speech);
+        reply.status(200);
+        return {
+          agentSpeech: result.speech,
+          agentAudioUrl: tts.error ? undefined : `/tts/audio/${tts.filename}`,
+          agentAction: result.action,
+        };
+      }
 
       // If agent is waiting for user response in a conversation, route here
       if (conversationManager.isActive()) {
