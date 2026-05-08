@@ -3,6 +3,7 @@ import { obsService } from "./obs.service.js";
 import { sessionState } from "./session-state.js";
 import { eventRepository } from "./event-repository.js";
 import { flowTracker } from "./flow-tracker.js";
+import { renameClipForEvent } from "./clip-file.service.js";
 
 const LLM_BASE_URL = process.env.LLM_BASE_URL || "http://localhost:11434/v1";
 const LLM_MODEL = process.env.LLM_MODEL || "gemma3:12b";
@@ -86,7 +87,36 @@ END_SESSION 알겠어 세션 끝낼게`;
         try {
           await obsService.rawSocket.call("SaveReplayBuffer");
           console.log(`[Agent] Direct save: clip saved`);
-        } catch {}
+
+          // Save event + move clip to session folder
+          const event = await eventRepository.save({
+            transcript: `[자비스] ${command}`,
+            sessionId: sessionId,
+            timestamp: new Date().toISOString(),
+            category: "excitement",
+            confidence: 1.0,
+            matchedKeywords: ["자비스"],
+            action: "SAVE_CLIP",
+            actionReason: `direct command: ${command}`,
+          });
+          event.clipSaved = true;
+          event.obsTriggeredAt = new Date().toISOString();
+
+          // Wait for OBS to write file, then rename/move
+          await new Promise((r) => setTimeout(r, 1500));
+          const fileResult = await renameClipForEvent(event, sessionState.getFolderPath());
+          if (fileResult.clipFilename) event.clipFilename = fileResult.clipFilename;
+          if (fileResult.renamedFilePath) event.renamedFilePath = fileResult.renamedFilePath;
+          if (fileResult.sessionFolderPath) event.sessionFolderPath = fileResult.sessionFolderPath;
+          await eventRepository.update(event);
+        } catch (err) {
+          console.error(`[Agent] Direct save failed:`, err);
+        }
+      }
+
+      if (action === "END_SESSION" && sessionState.isActive()) {
+        sessionState.end();
+        console.log(`[Agent] Direct end session`);
       }
 
       return { speech, action };
