@@ -25,7 +25,7 @@ import { conversationManager } from "../services/conversation.service.js";
 export const voiceRoute: FastifyPluginAsync = async (app) => {
   app.post<{ Body: VoiceEventRequest }>(
     "/events/voice",
-    async (request, reply): Promise<VoiceEventResponse | VoiceEventIgnoredResponse | VoiceCommandResponse> => {
+    async (request, reply) => {
       const { transcript, sessionId, timestamp } = request.body;
 
       if (!transcript || typeof transcript !== "string") {
@@ -68,7 +68,7 @@ export const voiceRoute: FastifyPluginAsync = async (app) => {
           }
 
           reply.status(200);
-          return { ignored: true, reason: "low_confidence" as const };
+          return { ignored: true, reason: "low_confidence" as const, agentSpeech: decision.response };
         }
       }
 
@@ -201,23 +201,21 @@ export const voiceRoute: FastifyPluginAsync = async (app) => {
 
       eventBus.emit({ type: "voice_event", payload: event });
 
-      // Agent always asks user before saving — LLM generates contextual question
-      (async () => {
-        if (decision.action === "IGNORE") return;
+      // Agent asks user before saving — include question in response
+      const shouldAsk = await llmShouldAsk({
+        transcript: event.transcript,
+        category: event.category,
+        confidence: event.confidence,
+        isTurningPoint: decision.flowContext?.isTurningPoint,
+      });
 
-        const shouldAsk = await llmShouldAsk({
-          transcript: event.transcript,
-          category: event.category,
-          confidence: event.confidence,
-          isTurningPoint: decision.flowContext?.isTurningPoint,
-        });
+      let agentSpeech: string | undefined;
+      if (shouldAsk.question) {
+        conversationManager.startConversation(event, shouldAsk.question, decision.flowContext || undefined);
+        agentSpeech = shouldAsk.question;
+      }
 
-        if (shouldAsk.question) {
-          conversationManager.startConversation(event, shouldAsk.question, decision.flowContext || undefined);
-        }
-      })();
-
-      return { event };
+      return { event, agentSpeech };
     }
   );
 };

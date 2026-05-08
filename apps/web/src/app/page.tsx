@@ -153,6 +153,16 @@ export default function Home() {
             playClipSound();
           }
         }
+        // Agent speaks — direct from HTTP response
+        if (data.agentSpeech) {
+          const synth = window.speechSynthesis;
+          if (synth) {
+            const u = new SpeechSynthesisUtterance(data.agentSpeech);
+            u.lang = "ko-KR";
+            u.rate = 1.2;
+            synth.speak(u);
+          }
+        }
       }
     } catch {} finally {
       setDetecting(false);
