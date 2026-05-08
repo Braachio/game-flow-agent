@@ -249,3 +249,91 @@ ${recentCtx}
   if (error || !text) return "";
   return text.replace(/["""'''\n]/g, "").trim();
 }
+
+/**
+ * Decide whether to ask the user or act immediately.
+ * Returns { ask: true, question: "..." } or { ask: false, action: "SAVE_CLIP"|"TAG_EVENT", comment: "..." }
+ */
+export async function llmShouldAsk(context: {
+  transcript: string;
+  category: string;
+  confidence: number;
+  isTurningPoint?: boolean;
+  recentTranscripts?: string[];
+}): Promise<{ ask: boolean; question?: string; action?: string; comment?: string }> {
+  const { text, error } = await chat([
+    {
+      role: "system",
+      content: `너는 게임 스트리머의 AI 어시스턴트야. 스트리머가 감정적 반응을 했어.
+판단해: 바로 클립 저장할지, 아니면 무슨 상황인지 물어볼지.
+
+규칙:
+- 반응이 명확하면 (흥분, 승리) → 바로 저장
+- 반응이 부정적이거나 애매하면 (짜증, 놀람) → 무슨 상황인지 짧게 물어봐
+- 물어볼 때: 한 문장, 반말, 10자 이내
+
+JSON으로만 응답:
+바로 저장: {"ask":false,"action":"SAVE_CLIP","comment":"저장 관련 한마디"}
+물어볼 때: {"ask":true,"question":"물어볼 말"}`,
+    },
+    {
+      role: "user",
+      content: `발화: "${context.transcript}"
+감정: ${context.category} (confidence: ${Math.round(context.confidence * 100)}%)
+${context.isTurningPoint ? "흐름 반전 상황" : ""}
+최근: ${context.recentTranscripts?.slice(-2).map(t => `"${t}"`).join(", ") || "없음"}`,
+    },
+  ], { temperature: 0.5, maxTokens: 80 });
+
+  if (error || !text) return { ask: false, action: "SAVE_CLIP", comment: "클립 저장." };
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { ask: false, action: "SAVE_CLIP", comment: "클립 저장." };
+  }
+}
+
+/**
+ * After user responds to agent's question, decide what to do.
+ */
+export async function llmDecideAfterResponse(context: {
+  messages: Array<{ role: "agent" | "user"; text: string }>;
+  originalTranscript: string;
+  category: string;
+}): Promise<{ action: string; response: string }> {
+  const dialogue = context.messages
+    .map((m) => `${m.role === "agent" ? "에이전트" : "스트리머"}: "${m.text}"`)
+    .join("\n");
+
+  const { text, error } = await chat([
+    {
+      role: "system",
+      content: `너는 게임 스트리머의 AI 어시스턴트야. 대화를 보고 판단해.
+
+가능한 판단:
+- SAVE_CLIP: 하이라이트 클립으로 저장할 가치 있음
+- TAG_EVENT: 저장까진 아니지만 기록해둠
+- IGNORE: 별거 아님, 넘어가기
+
+JSON으로 응답: {"action":"SAVE_CLIP|TAG_EVENT|IGNORE","response":"스트리머에게 할 짧은 말 (반말, 15자 이내)"}`,
+    },
+    {
+      role: "user",
+      content: `원래 반응: "${context.originalTranscript}" (${context.category})
+
+대화:
+${dialogue}
+
+뭘로 판단해?`,
+    },
+  ], { temperature: 0.3, maxTokens: 80 });
+
+  if (error || !text) return { action: "SAVE_CLIP", response: "일단 저장해둘게." };
+
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { action: "SAVE_CLIP", response: "일단 저장해둘게." };
+  }
+}

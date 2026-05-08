@@ -5,6 +5,7 @@ import type {
   VoiceEventResponse,
   VoiceEventIgnoredResponse,
   VoiceCommandResponse,
+  AgentAction,
 } from "@likelion/shared";
 import { classify } from "../services/classifier.js";
 import { eventRepository } from "../services/event-repository.js";
@@ -17,8 +18,9 @@ import { decideAction } from "../services/action-decision.service.js";
 import { flowTracker } from "../services/flow-tracker.js";
 import { eventBus } from "../services/event-bus.js";
 import { captureScreenContext } from "../services/screen-context.service.js";
-import { llmClassify, llmClipTitle, isLLMAvailable } from "../services/llm.service.js";
+import { llmClassify, llmClipTitle, llmShouldAsk, llmDecideAfterResponse, isLLMAvailable } from "../services/llm.service.js";
 import { generateCommentary, generateSessionEndCommentary } from "../services/agent-commentary.service.js";
+import { conversationManager } from "../services/conversation.service.js";
 
 export const voiceRoute: FastifyPluginAsync = async (app) => {
   app.post<{ Body: VoiceEventRequest }>(
@@ -32,6 +34,42 @@ export const voiceRoute: FastifyPluginAsync = async (app) => {
       }
 
       console.log(`[Voice] Received: "${transcript}"`);
+
+      // If agent is waiting for user response in a conversation, route here
+      if (conversationManager.isActive()) {
+        const convCtx = conversationManager.receiveUserResponse(transcript);
+        if (convCtx) {
+          // LLM decides based on the full conversation
+          const decision = await llmDecideAfterResponse({
+            messages: convCtx.messages,
+            originalTranscript: convCtx.triggerEvent.transcript,
+            category: convCtx.triggerEvent.category,
+          });
+
+          console.log(`[Conversation] LLM decision: ${decision.action} — "${decision.response}"`);
+          conversationManager.conclude(decision.response, decision.action as AgentAction);
+
+          // Execute the action
+          if (decision.action === "SAVE_CLIP" && convCtx.triggerEvent) {
+            const event = convCtx.triggerEvent;
+            event.actionReason = `conversation: ${decision.response}`;
+            const clipResult = await obsService.triggerClipForEvent(event, convCtx.triggerFlow);
+            if (clipResult.obsTriggeredAt) {
+              event.clipSaved = clipResult.clipSaved;
+              event.obsTriggeredAt = clipResult.obsTriggeredAt;
+              if (clipResult.clipSaved) {
+                const fileResult = await renameClipForEvent(event, sessionState.getFolderPath());
+                if (fileResult.clipFilename) event.clipFilename = fileResult.clipFilename;
+                if (fileResult.renamedFilePath) event.renamedFilePath = fileResult.renamedFilePath;
+              }
+              await eventRepository.update(event);
+            }
+          }
+
+          reply.status(200);
+          return { ignored: true, reason: "low_confidence" as const };
+        }
+      }
 
       // Detect voice command intent
       const intentResult = detectIntent(transcript);
@@ -221,13 +259,39 @@ export const voiceRoute: FastifyPluginAsync = async (app) => {
 
       eventBus.emit({ type: "voice_event", payload: event });
 
-      // Agent commentary (non-blocking) — based on action decision, not OBS result
-      generateCommentary({
-        event,
-        flowContext: decision.flowContext,
-        clipSaved: decision.action === "SAVE_CLIP",
-        action: decision.action,
-      });
+      // Agent response — conversational or direct commentary
+      (async () => {
+        // For SAVE_CLIP actions with high confidence: direct comment
+        // For TAG_EVENT or ambiguous: ask the user via LLM
+        if (decision.action === "SAVE_CLIP") {
+          // Clear-cut clip — generate commentary directly
+          generateCommentary({
+            event,
+            flowContext: decision.flowContext,
+            clipSaved: true,
+            action: decision.action,
+          });
+        } else if (decision.action === "TAG_EVENT") {
+          // Interesting but not clipped — maybe ask the user?
+          const shouldAsk = await llmShouldAsk({
+            transcript: event.transcript,
+            category: event.category,
+            confidence: event.confidence,
+            isTurningPoint: decision.flowContext?.isTurningPoint,
+          });
+
+          if (shouldAsk.ask && shouldAsk.question) {
+            conversationManager.startConversation(event, shouldAsk.question, decision.flowContext || undefined);
+          } else if (shouldAsk.comment) {
+            generateCommentary({
+              event,
+              flowContext: decision.flowContext,
+              clipSaved: false,
+              action: decision.action,
+            });
+          }
+        }
+      })();
 
       return { event };
     }
