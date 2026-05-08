@@ -18,7 +18,33 @@ interface ScoredCategory {
   keywordMatches: string[];
 }
 
+/** Common game-related STT misrecognitions */
+const GAME_STT_CORRECTIONS: Record<string, string> = {
+  "꿀 먹었다": "골 먹었다",
+  "꿀먹었다": "골먹었다",
+  "꿀 넣었다": "골 넣었다",
+  "꿀넣었다": "골넣었다",
+  "꿀 들어갔다": "골 들어갔다",
+  "꿀 들어갔어": "골 들어갔어",
+  "역전꿀": "역전골",
+  "동점꿀": "동점골",
+};
+
+function applyGameCorrections(text: string): string {
+  let corrected = text;
+  for (const [wrong, right] of Object.entries(GAME_STT_CORRECTIONS)) {
+    if (corrected.includes(wrong)) {
+      corrected = corrected.replace(wrong, right);
+      console.log(`[Classifier] STT corrected: "${wrong}" → "${right}"`);
+    }
+  }
+  return corrected;
+}
+
 export function classify(transcript: string): ClassificationResult {
+  // Apply game-specific STT corrections before classification
+  transcript = applyGameCorrections(transcript);
+
   const debug: ClassificationDebug = {
     rawScore: 0,
     phraseMatches: [],
