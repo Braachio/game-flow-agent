@@ -9,6 +9,15 @@ const LLM_BASE_URL = process.env.LLM_BASE_URL || "http://localhost:11434/v1";
 const LLM_MODEL = process.env.LLM_MODEL || "gemma4:e2b";
 const LLM_TIMEOUT = 30_000;
 
+/** Extract JSON from LLM output that may be wrapped in markdown code blocks */
+function extractJSON(text: string): string {
+  // Strip ```json ... ``` wrapping
+  let cleaned = text.replace(/```(?:json)?\s*/gi, "").replace(/```\s*/g, "");
+  // Find first { ... } or first complete JSON
+  const match = cleaned.match(/\{[\s\S]*\}/);
+  return match ? match[0] : cleaned;
+}
+
 // Session memory for context-aware responses
 const sessionMemory = {
   clipsSaved: 0,
@@ -129,7 +138,7 @@ ${recentContext}
   if (error || !text) return null;
 
   try {
-    const parsed = JSON.parse(text);
+    const parsed = JSON.parse(extractJSON(text));
     return { category: parsed.category, reason: parsed.reason };
   } catch {
     return null;
@@ -329,7 +338,7 @@ ${context.isTurningPoint ? "⚡ 흐름 반전!" : ""}`,
   }
 
   try {
-    const parsed = JSON.parse(text);
+    const parsed = JSON.parse(extractJSON(text));
     const action = (["SAVE", "ASK", "SKIP"].includes(parsed.action)) ? parsed.action : "ASK";
     const speech = (parsed.speech || "").replace(/["""'''\n]/g, "").trim();
     return { action, speech: speech || "저장할까?" };
@@ -348,6 +357,27 @@ export async function llmDecideAfterResponse(context: {
   originalTranscript: string;
   category: string;
 }): Promise<{ action: string; response: string }> {
+  // Hardcoded fast-path for obvious signals (LLM can't be trusted with these)
+  const lastUserMsg = context.messages.filter((m) => m.role === "user").pop()?.text.trim() || "";
+  const lower = lastUserMsg.replace(/\s+/g, "");
+
+  // Obvious positive
+  if (/^(ㅇㅇ|응|어|ㅇ|그래|저장|당연|해줘|저장해|해)$/.test(lower)) {
+    return { action: "SAVE_CLIP", response: "알았어 저장!" };
+  }
+  // Obvious negative / confusion
+  if (/^(아니|ㄴㄴ|됐어|괜찮|그냥|아냐|뭐라고|뭐라는|왜|뭐|몰라)/.test(lower)) {
+    return { action: "IGNORE", response: "ㅇㅋ 넘어갈게" };
+  }
+  // Situation with keywords suggesting save-worthy
+  if (/보정|억까|버그|역전|골|대박|킬|에이스/.test(lower)) {
+    return { action: "SAVE_CLIP", response: "오 그거 저장할게" };
+  }
+  // Situation with keywords suggesting skip
+  if (/미스|실수|그냥|별거|아무것도/.test(lower)) {
+    return { action: "IGNORE", response: "아 괜찮아 넘어가자" };
+  }
+
   const dialogue = context.messages
     .map((m) => `${m.role === "agent" ? "플로우" : "스트리머"}: "${m.text}"`)
     .join("\n");
@@ -383,7 +413,7 @@ ${dialogue}
   if (error || !text) return { action: "SAVE_CLIP", response: "저장해둘게." };
 
   try {
-    return JSON.parse(text);
+    return JSON.parse(extractJSON(text));
   } catch {
     return { action: "SAVE_CLIP", response: "일단 저장해둘게." };
   }
