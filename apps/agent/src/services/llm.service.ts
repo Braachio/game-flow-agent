@@ -201,3 +201,51 @@ FP 횟수: ${feedbackData.totalFP}
   if (error || !text) return "";
   return text;
 }
+
+/**
+ * Generate real-time agent commentary for a game moment.
+ * Should be short (1 sentence max), natural, spoken Korean.
+ */
+export async function llmCommentary(context: {
+  transcript: string;
+  category: string;
+  action: string;
+  isTurningPoint?: boolean;
+  silenceSec?: number;
+  phase?: string;
+  categoryRepeatCount?: number;
+  recentTranscripts?: string[];
+}): Promise<string> {
+  const recentCtx = context.recentTranscripts?.length
+    ? `최근 발화들: ${context.recentTranscripts.slice(-3).map(t => `"${t}"`).join(", ")}`
+    : "";
+
+  const { text, error } = await chat([
+    {
+      role: "system",
+      content: `너는 게임 스트리머의 AI 어시스턴트야. 게임 중 반응에 맞는 짧은 코멘트를 해줘.
+규칙:
+- 한국어로 한 문장 (15자 이내)
+- 반말 사용 (친구처럼)
+- 상황에 맞는 자연스러운 리액션
+- 클립 저장했으면 알려줘
+- 텍스트만 출력 (따옴표, 설명 없이)`,
+    },
+    {
+      role: "user",
+      content: `스트리머 발화: "${context.transcript}"
+감정: ${context.category}
+에이전트 판단: ${context.action}
+${context.isTurningPoint ? "역전 상황!" : ""}
+${context.silenceSec && context.silenceSec > 10 ? `${Math.round(context.silenceSec)}초 침묵 후 반응` : ""}
+${context.phase === "peak" ? "클라이맥스 구간" : ""}
+${context.categoryRepeatCount && context.categoryRepeatCount >= 2 ? "같은 반응 반복 중" : ""}
+${recentCtx}
+
+짧게 코멘트해.`,
+    },
+  ], { temperature: 0.8, maxTokens: 48 });
+
+  if (error || !text) return "";
+  return text.replace(/["""'''\n]/g, "").trim();
+}
