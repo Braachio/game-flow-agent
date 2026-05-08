@@ -280,41 +280,64 @@ ${recentCtx}
 }
 
 /**
- * Decide whether to ask the user or act immediately.
- * Returns { ask: true, question: "..." } or { ask: false, action: "SAVE_CLIP"|"TAG_EVENT", comment: "..." }
+ * Unified agent reaction: decides action AND generates speech in one call.
+ * Returns: { action: "SAVE"|"ASK"|"SKIP", speech: "..." }
+ *
+ * SAVE = save clip immediately, tell user
+ * ASK = need more info, ask user (starts conversation)
+ * SKIP = not worth saving, brief comment or silence
  */
-export async function llmShouldAsk(context: {
+export async function llmReact(context: {
   transcript: string;
   category: string;
   confidence: number;
   isTurningPoint?: boolean;
-  recentTranscripts?: string[];
-}): Promise<{ ask: boolean; question?: string }> {
+}): Promise<{ action: "SAVE" | "ASK" | "SKIP"; speech: string }> {
   const sessionCtx = getSessionContext();
 
   const { text, error } = await chat([
     {
       role: "system",
-      content: AGENT_SYSTEM_PROMPT,
+      content: `${AGENT_SYSTEM_PROMPT}
+
+지금 스트리머가 감정 반응을 했어. 판단하고 반응해.
+
+판단 기준:
+- 확실한 하이라이트 (흥분, 득점, 역전) → SAVE: 바로 저장하고 알려줘
+- 애매하거나 부정적 (짜증, 놀람, 한탄) → ASK: 뭐였는지 짧게 물어봐
+- 별거 아닌 거 (단순 감탄, 잡담) → SKIP: 짧게 반응하거나 무시
+
+JSON으로만 응답: {"action":"SAVE|ASK|SKIP","speech":"할 말"}
+speech 규칙: 반말, 20자 이내, 자연스럽게, 이전에 한 말 반복X`,
     },
     {
       role: "user",
-      content: `[세션 상태]
-${sessionCtx}
+      content: `[세션] ${sessionCtx}
 
-[방금 일어난 일]
 스트리머: "${context.transcript}"
-감정 분석: ${context.category} (${Math.round(context.confidence * 100)}%)
-${context.isTurningPoint ? "⚡ 흐름 반전!" : ""}
-
-짧게 반응해. 저장할지 물어보거나, 확실하면 저장한다고 말해.`,
+감정: ${context.category} (${Math.round(context.confidence * 100)}%)
+${context.isTurningPoint ? "⚡ 흐름 반전!" : ""}`,
     },
-  ], { temperature: 0.8, maxTokens: 32 });
+  ], { temperature: 0.7, maxTokens: 64 });
 
-  if (error || !text) return { ask: true, question: "저장할까?" };
+  if (error || !text) {
+    // Fallback: excitement/victory → SAVE, otherwise ASK
+    if (context.category === "excitement" || context.category === "victory") {
+      return { action: "SAVE", speech: "저장할게." };
+    }
+    return { action: "ASK", speech: "뭐였어?" };
+  }
 
-  const question = text.replace(/["""'''\n]/g, "").trim();
-  return { ask: true, question: question || "저장할까?" };
+  try {
+    const parsed = JSON.parse(text);
+    const action = (["SAVE", "ASK", "SKIP"].includes(parsed.action)) ? parsed.action : "ASK";
+    const speech = (parsed.speech || "").replace(/["""'''\n]/g, "").trim();
+    return { action, speech: speech || "저장할까?" };
+  } catch {
+    // If LLM didn't return JSON, treat the raw text as speech + ASK
+    const speech = text.replace(/["""'''\n{}]/g, "").trim();
+    return { action: "ASK", speech: speech.slice(0, 20) || "뭐였어?" };
+  }
 }
 
 /**
@@ -337,10 +360,11 @@ export async function llmDecideAfterResponse(context: {
       content: `${AGENT_SYSTEM_PROMPT}
 
 판단 규칙:
-- 긍정 신호 ("ㅇㅇ", "응", "저장", "당연", "ㅇ") → SAVE_CLIP
-- 부정 신호 ("아니", "됐어", "ㄴㄴ", "그냥", "괜찮") → IGNORE
-- 상황 설명 중 억까/버그/대박 → SAVE_CLIP
-- 사소한 실수/미스 → IGNORE
+- 긍정 신호 ("ㅇㅇ", "응", "저장해", "당연", "ㅇ", "그래") → SAVE_CLIP
+- 부정 신호 ("아니", "됐어", "ㄴㄴ", "그냥", "괜찮", "미스") → IGNORE
+- 되묻기 ("뭐라고", "왜", "뭐", "응?") → IGNORE (확신 없음 = 저장 안 함)
+- 상황 설명: 억까/버그/보정/대박 플레이 → SAVE_CLIP
+- 사소한 실수/패스미스/별거아님 → IGNORE
 
 JSON으로만 응답: {"action":"SAVE_CLIP|IGNORE","response":"짧은 반응"}
 response는 자연스럽고 다양하게. 이전에 한 말 반복하지 마.`,

@@ -18,7 +18,7 @@ import { decideAction } from "../services/action-decision.service.js";
 import { flowTracker } from "../services/flow-tracker.js";
 import { eventBus } from "../services/event-bus.js";
 import { captureScreenContext } from "../services/screen-context.service.js";
-import { llmClassify, llmClipTitle, llmShouldAsk, llmDecideAfterResponse, isLLMAvailable, recordAction, resetSessionMemory } from "../services/llm.service.js";
+import { llmClassify, llmClipTitle, llmReact, llmDecideAfterResponse, isLLMAvailable, recordAction, resetSessionMemory } from "../services/llm.service.js";
 import { generateCommentary, generateSessionEndCommentary } from "../services/agent-commentary.service.js";
 import { conversationManager } from "../services/conversation.service.js";
 
@@ -203,21 +203,37 @@ export const voiceRoute: FastifyPluginAsync = async (app) => {
 
       eventBus.emit({ type: "voice_event", payload: event });
 
-      // Agent asks user before saving — include question in response
-      const shouldAsk = await llmShouldAsk({
+      // LLM decides action + speech in one call
+      const reaction = await llmReact({
         transcript: event.transcript,
         category: event.category,
         confidence: event.confidence,
         isTurningPoint: decision.flowContext?.isTurningPoint,
       });
 
-      let agentSpeech: string | undefined;
-      if (shouldAsk.question) {
-        conversationManager.startConversation(event, shouldAsk.question, decision.flowContext || undefined);
-        agentSpeech = shouldAsk.question;
-      }
+      console.log(`[Agent] ${reaction.action}: "${reaction.speech}"`);
 
-      return { event, agentSpeech };
+      if (reaction.action === "SAVE") {
+        // Save immediately — no confirmation needed
+        recordAction(event.transcript, "SAVE_CLIP", reaction.speech);
+        const clipResult = await obsService.triggerClipForEvent(event, decision.flowContext, true);
+        if (clipResult.obsTriggeredAt) {
+          event.clipSaved = clipResult.clipSaved;
+          event.obsTriggeredAt = clipResult.obsTriggeredAt;
+          if (clipResult.clipSaved) {
+            const fileResult = await renameClipForEvent(event, sessionState.getFolderPath());
+            if (fileResult.clipFilename) event.clipFilename = fileResult.clipFilename;
+            if (fileResult.renamedFilePath) event.renamedFilePath = fileResult.renamedFilePath;
+          }
+          await eventRepository.update(event);
+        }
+      } else if (reaction.action === "ASK") {
+        // Need more context — start conversation
+        conversationManager.startConversation(event, reaction.speech, decision.flowContext || undefined);
+      }
+      // SKIP = do nothing, just speak
+
+      return { event, agentSpeech: reaction.speech };
     }
   );
 };
