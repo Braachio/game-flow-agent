@@ -145,8 +145,8 @@ class ObsService {
     return CLIP_CATEGORIES.includes(category);
   }
 
-  async triggerClipForEvent(event: VoiceEvent, flowContext?: FlowContext | null): Promise<ObsClipResult> {
-    if (!this.shouldTriggerClip(event.category)) {
+  async triggerClipForEvent(event: VoiceEvent, flowContext?: FlowContext | null, force = false): Promise<ObsClipResult> {
+    if (!force && !this.shouldTriggerClip(event.category)) {
       console.log(
         `[OBS] Replay save skipped: category "${event.category}" is not clip-worthy`
       );

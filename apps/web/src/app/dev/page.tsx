@@ -161,6 +161,26 @@ export default function Home() {
             playClipSound();
           }
         }
+        // Agent speaks — request TTS async, play when ready
+        if (data.agentSpeech) {
+          fetch(`${AGENT_URL}/tts/speak`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text: data.agentSpeech }),
+          })
+            .then((r) => r.json())
+            .then((tts) => {
+              if (tts.audioUrl) {
+                new Audio(`${AGENT_URL}${tts.audioUrl}`).play().catch(() => {});
+              }
+            })
+            .catch(() => {
+              const u = new SpeechSynthesisUtterance(data.agentSpeech);
+              u.lang = "ko-KR";
+              u.rate = 1.2;
+              speechSynthesis?.speak(u);
+            });
+        }
         fetchStats();
         fetchMetrics();
       }

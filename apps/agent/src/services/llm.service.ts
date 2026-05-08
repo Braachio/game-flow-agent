@@ -3,9 +3,48 @@
  * Expected to run via Ollama, vLLM, or llama.cpp server.
  */
 
+import { AGENT_SYSTEM_PROMPT, buildConversationContext } from "./agent-persona.js";
+
 const LLM_BASE_URL = process.env.LLM_BASE_URL || "http://localhost:11434/v1";
-const LLM_MODEL = process.env.LLM_MODEL || "gemma4:e2b";
+const LLM_MODEL = process.env.LLM_MODEL || "gemma3:12b";
+const LLM_FAST_MODEL = process.env.LLM_FAST_MODEL || "gemma3:4b";
 const LLM_TIMEOUT = 30_000;
+
+/** Extract JSON from LLM output that may be wrapped in markdown code blocks */
+function extractJSON(text: string): string {
+  // Strip ```json ... ``` wrapping
+  let cleaned = text.replace(/```(?:json)?\s*/gi, "").replace(/```\s*/g, "");
+  // Find first { ... } or first complete JSON
+  const match = cleaned.match(/\{[\s\S]*\}/);
+  return match ? match[0] : cleaned;
+}
+
+// Session memory for context-aware responses
+const sessionMemory = {
+  clipsSaved: 0,
+  recentActions: [] as Array<{ transcript: string; action: string; agentSaid?: string }>,
+  startedAt: Date.now(),
+};
+
+export function resetSessionMemory(): void {
+  sessionMemory.clipsSaved = 0;
+  sessionMemory.recentActions = [];
+  sessionMemory.startedAt = Date.now();
+}
+
+export function recordAction(transcript: string, action: string, agentSaid?: string): void {
+  if (action === "SAVE_CLIP") sessionMemory.clipsSaved++;
+  sessionMemory.recentActions.push({ transcript, action, agentSaid });
+  if (sessionMemory.recentActions.length > 10) sessionMemory.recentActions.shift();
+}
+
+function getSessionContext(): string {
+  return buildConversationContext({
+    clipsSaved: sessionMemory.clipsSaved,
+    recentActions: sessionMemory.recentActions,
+    sessionDurationMin: Math.round((Date.now() - sessionMemory.startedAt) / 60000),
+  });
+}
 
 interface ChatMessage {
   role: "system" | "user" | "assistant";
@@ -17,7 +56,7 @@ interface LLMResponse {
   error?: string;
 }
 
-async function chat(messages: ChatMessage[], options?: { temperature?: number; maxTokens?: number }): Promise<LLMResponse> {
+async function chat(messages: ChatMessage[], options?: { temperature?: number; maxTokens?: number; fast?: boolean }): Promise<LLMResponse> {
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), LLM_TIMEOUT);
@@ -26,7 +65,7 @@ async function chat(messages: ChatMessage[], options?: { temperature?: number; m
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: LLM_MODEL,
+        model: options?.fast ? LLM_FAST_MODEL : LLM_MODEL,
         messages,
         temperature: options?.temperature ?? 0.3,
         max_tokens: options?.maxTokens ?? 512,
@@ -100,7 +139,7 @@ ${recentContext}
   if (error || !text) return null;
 
   try {
-    const parsed = JSON.parse(text);
+    const parsed = JSON.parse(extractJSON(text));
     return { category: parsed.category, reason: parsed.reason };
   } catch {
     return null;
@@ -200,4 +239,174 @@ FP 횟수: ${feedbackData.totalFP}
 
   if (error || !text) return "";
   return text;
+}
+
+/**
+ * Generate real-time agent commentary for a game moment.
+ * Should be short (1 sentence max), natural, spoken Korean.
+ */
+export async function llmCommentary(context: {
+  transcript: string;
+  category: string;
+  action: string;
+  isTurningPoint?: boolean;
+  silenceSec?: number;
+  phase?: string;
+  categoryRepeatCount?: number;
+  recentTranscripts?: string[];
+}): Promise<string> {
+  const recentCtx = context.recentTranscripts?.length
+    ? `최근 발화들: ${context.recentTranscripts.slice(-3).map(t => `"${t}"`).join(", ")}`
+    : "";
+
+  const { text, error } = await chat([
+    {
+      role: "system",
+      content: `너는 게임 스트리머의 AI 어시스턴트야. 게임 중 반응에 맞는 짧은 코멘트를 해줘.
+규칙:
+- 한국어로 한 문장 (15자 이내)
+- 반말 사용 (친구처럼)
+- 상황에 맞는 자연스러운 리액션
+- 클립 저장했으면 알려줘
+- 텍스트만 출력 (따옴표, 설명 없이)`,
+    },
+    {
+      role: "user",
+      content: `스트리머 발화: "${context.transcript}"
+감정: ${context.category}
+에이전트 판단: ${context.action}
+${context.isTurningPoint ? "역전 상황!" : ""}
+${context.silenceSec && context.silenceSec > 10 ? `${Math.round(context.silenceSec)}초 침묵 후 반응` : ""}
+${context.phase === "peak" ? "클라이맥스 구간" : ""}
+${context.categoryRepeatCount && context.categoryRepeatCount >= 2 ? "같은 반응 반복 중" : ""}
+${recentCtx}
+
+짧게 코멘트해.`,
+    },
+  ], { temperature: 0.8, maxTokens: 48 });
+
+  if (error || !text) return "";
+  return text.replace(/["""'''\n]/g, "").trim();
+}
+
+/**
+ * Unified agent reaction: decides action AND generates speech in one call.
+ * Returns: { action: "SAVE"|"ASK"|"SKIP", speech: "..." }
+ *
+ * SAVE = save clip immediately, tell user
+ * ASK = need more info, ask user (starts conversation)
+ * SKIP = not worth saving, brief comment or silence
+ */
+export async function llmReact(context: {
+  transcript: string;
+  category: string;
+  confidence: number;
+  isTurningPoint?: boolean;
+}): Promise<{ action: "SAVE" | "ASK" | "SKIP"; speech: string }> {
+  const sessionCtx = getSessionContext();
+
+  const { text, error } = await chat([
+    {
+      role: "system",
+      content: `${AGENT_SYSTEM_PROMPT}
+
+스트리머가 감정 반응을 했어. 한 줄로 응답해.
+
+응답 형식 (반드시 이 형식만):
+SAVE 할말
+ASK 할말
+SKIP 할말
+
+SAVE = 클립 저장하고 알려줌 (확실한 하이라이트)
+ASK = 상황 물어봄 (애매할 때)
+SKIP = 넘어감 (별거 아닐 때)
+
+예시:
+SAVE 오 대박 저장!
+ASK 뭐였어?
+SKIP ㅋㅋ`,
+    },
+    {
+      role: "user",
+      content: `[세션] ${sessionCtx}
+스트리머: "${context.transcript}" (${context.category}${context.isTurningPoint ? ", 흐름반전" : ""})`,
+    },
+  ], { temperature: 0.7, maxTokens: 32, fast: true });
+
+  if (error || !text) {
+    if (context.category === "excitement" || context.category === "victory") {
+      return { action: "SAVE", speech: "저장할게." };
+    }
+    return { action: "ASK", speech: "뭐였어?" };
+  }
+
+  return parseActionSpeech(text);
+}
+
+/** Parse "ACTION speech text" format */
+function parseActionSpeech(text: string): { action: "SAVE" | "ASK" | "SKIP"; speech: string } {
+  const cleaned = text.replace(/["""'''\n`]/g, "").trim();
+  const match = cleaned.match(/^(SAVE|ASK|SKIP)\s+(.+)/i);
+  if (match) {
+    const action = match[1].toUpperCase() as "SAVE" | "ASK" | "SKIP";
+    return { action, speech: match[2].trim().slice(0, 25) };
+  }
+  // Fallback: if no action prefix, treat as ASK with the text
+  return { action: "ASK", speech: cleaned.slice(0, 20) || "뭐였어?" };
+}
+
+/**
+ * After user responds to agent's question, decide what to do.
+ */
+export async function llmDecideAfterResponse(context: {
+  messages: Array<{ role: "agent" | "user"; text: string }>;
+  originalTranscript: string;
+  category: string;
+}): Promise<{ action: string; response: string }> {
+  const dialogue = context.messages
+    .map((m) => `${m.role === "agent" ? "플로우" : "스트리머"}: ${m.text}`)
+    .join("\n");
+
+  const sessionCtx = getSessionContext();
+
+  const { text, error } = await chat([
+    {
+      role: "system",
+      content: `${AGENT_SYSTEM_PROMPT}
+
+스트리머와 대화 후 판단해. 한 줄로 응답:
+
+SAVE 할말
+IGNORE 할말
+
+판단 기준:
+- "ㅇㅇ", "응", "저장해", "당연" → SAVE
+- "아니", "됐어", "그냥", "뭐라고", "왜" → IGNORE
+- 억까/버그/보정/대박 설명 → SAVE
+- 미스/실수/별거아님 → IGNORE
+
+예시:
+SAVE 알았어 저장!
+IGNORE ㅇㅋ 넘어갈게`,
+    },
+    {
+      role: "user",
+      content: `[세션] ${sessionCtx}
+[원래 반응] "${context.originalTranscript}" (${context.category})
+
+${dialogue}`,
+    },
+  ], { temperature: 0.3, maxTokens: 32 });
+
+  if (error || !text) return { action: "SAVE_CLIP", response: "저장해둘게." };
+
+  // Parse "SAVE 할말" or "IGNORE 할말" format
+  const cleaned = text.replace(/["""'''\n`]/g, "").trim();
+  const match = cleaned.match(/^(SAVE|IGNORE)\s+(.+)/i);
+  if (match) {
+    const action = match[1].toUpperCase() === "SAVE" ? "SAVE_CLIP" : "IGNORE";
+    return { action, response: match[2].trim().slice(0, 25) };
+  }
+  // Fallback
+  return { action: "IGNORE", response: cleaned.slice(0, 20) || "넘어갈게" };
 }

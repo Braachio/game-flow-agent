@@ -18,7 +18,33 @@ interface ScoredCategory {
   keywordMatches: string[];
 }
 
+/** Common game-related STT misrecognitions */
+const GAME_STT_CORRECTIONS: Record<string, string> = {
+  "꿀 먹었다": "골 먹었다",
+  "꿀먹었다": "골먹었다",
+  "꿀 넣었다": "골 넣었다",
+  "꿀넣었다": "골넣었다",
+  "꿀 들어갔다": "골 들어갔다",
+  "꿀 들어갔어": "골 들어갔어",
+  "역전꿀": "역전골",
+  "동점꿀": "동점골",
+};
+
+function applyGameCorrections(text: string): string {
+  let corrected = text;
+  for (const [wrong, right] of Object.entries(GAME_STT_CORRECTIONS)) {
+    if (corrected.includes(wrong)) {
+      corrected = corrected.replace(wrong, right);
+      console.log(`[Classifier] STT corrected: "${wrong}" → "${right}"`);
+    }
+  }
+  return corrected;
+}
+
 export function classify(transcript: string): ClassificationResult {
+  // Apply game-specific STT corrections before classification
+  transcript = applyGameCorrections(transcript);
+
   const debug: ClassificationDebug = {
     rawScore: 0,
     phraseMatches: [],
@@ -95,7 +121,7 @@ export function classify(transcript: string): ClassificationResult {
   for (const rule of KEYWORD_RULES) {
     const matches: string[] = [];
     for (const keyword of rule.keywords) {
-      if (transcript.includes(keyword)) {
+      if (transcript.includes(keyword) || transcriptNoSpace.includes(keyword.replace(/\s+/g, ""))) {
         matches.push(keyword);
       }
     }
@@ -209,8 +235,8 @@ function shouldFilter(transcript: string, debug: ClassificationDebug): boolean {
 
   // Minimum: need 2+ meaningful tokens OR a repeated pattern
   if (meaningfulTokens.length < 2 && !hasRepetition(tokens)) {
-    // Allow through if the single meaningful token is multi-syllable (2+ chars)
-    if (meaningfulTokens.length === 1 && meaningfulTokens[0].length >= 2) {
+    // Allow through if the single meaningful token is multi-syllable or a strong keyword
+    if (meaningfulTokens.length === 1 && (meaningfulTokens[0].length >= 2 || isStrongSingleChar(meaningfulTokens[0]))) {
       return false;
     }
     debug.filtered = true;
@@ -283,7 +309,7 @@ function detectRepetitionCategory(transcript: string): { category: ReactionCateg
 
 function isStrongSingleChar(char: string): boolean {
   // Single chars that are meaningful keywords on their own (when not noise)
-  const strong = new Set(["킬", "겟"]);
+  const strong = new Set(["킬", "겟", "헐", "헉"]);
   return strong.has(char);
 }
 

@@ -96,6 +96,16 @@ export const sessionsRoute: FastifyPluginAsync = async (app) => {
     "/sessions/reports",
     async (request): Promise<SessionReport> => {
       const report = request.body;
+
+      // Fill in sessionFolderPath from backend if frontend didn't provide it
+      if (!report.sessionFolderPath) {
+        const events = await eventRepository.getBySession(report.sessionId);
+        const folderFromEvent = events.find((e) => e.sessionFolderPath)?.sessionFolderPath;
+        if (folderFromEvent) {
+          report.sessionFolderPath = folderFromEvent;
+        }
+      }
+
       const reports = await loadReports();
       reports.push(report);
       await saveReports(reports);
