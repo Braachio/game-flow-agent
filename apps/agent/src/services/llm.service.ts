@@ -309,44 +309,49 @@ export async function llmReact(context: {
       role: "system",
       content: `${AGENT_SYSTEM_PROMPT}
 
-지금 스트리머가 감정 반응을 했어. 판단하고 반응해.
+스트리머가 감정 반응을 했어. 한 줄로 응답해.
 
-판단 기준:
-- 확실한 하이라이트 (흥분, 득점, 역전) → SAVE: 바로 저장하고 알려줘
-- 애매하거나 부정적 (짜증, 놀람, 한탄) → ASK: 뭐였는지 짧게 물어봐
-- 별거 아닌 거 (단순 감탄, 잡담) → SKIP: 짧게 반응하거나 무시
+응답 형식 (반드시 이 형식만):
+SAVE 할말
+ASK 할말
+SKIP 할말
 
-JSON으로만 응답: {"action":"SAVE|ASK|SKIP","speech":"할 말"}
-speech 규칙: 반말, 20자 이내, 자연스럽게, 이전에 한 말 반복X`,
+SAVE = 클립 저장하고 알려줌 (확실한 하이라이트)
+ASK = 상황 물어봄 (애매할 때)
+SKIP = 넘어감 (별거 아닐 때)
+
+예시:
+SAVE 오 대박 저장!
+ASK 뭐였어?
+SKIP ㅋㅋ`,
     },
     {
       role: "user",
       content: `[세션] ${sessionCtx}
-
-스트리머: "${context.transcript}"
-감정: ${context.category} (${Math.round(context.confidence * 100)}%)
-${context.isTurningPoint ? "⚡ 흐름 반전!" : ""}`,
+스트리머: "${context.transcript}" (${context.category}${context.isTurningPoint ? ", 흐름반전" : ""})`,
     },
-  ], { temperature: 0.7, maxTokens: 64 });
+  ], { temperature: 0.7, maxTokens: 32 });
 
   if (error || !text) {
-    // Fallback: excitement/victory → SAVE, otherwise ASK
     if (context.category === "excitement" || context.category === "victory") {
       return { action: "SAVE", speech: "저장할게." };
     }
     return { action: "ASK", speech: "뭐였어?" };
   }
 
-  try {
-    const parsed = JSON.parse(extractJSON(text));
-    const action = (["SAVE", "ASK", "SKIP"].includes(parsed.action)) ? parsed.action : "ASK";
-    const speech = (parsed.speech || "").replace(/["""'''\n]/g, "").trim();
-    return { action, speech: speech || "저장할까?" };
-  } catch {
-    // If LLM didn't return JSON, treat the raw text as speech + ASK
-    const speech = text.replace(/["""'''\n{}]/g, "").trim();
-    return { action: "ASK", speech: speech.slice(0, 20) || "뭐였어?" };
+  return parseActionSpeech(text);
+}
+
+/** Parse "ACTION speech text" format */
+function parseActionSpeech(text: string): { action: "SAVE" | "ASK" | "SKIP"; speech: string } {
+  const cleaned = text.replace(/["""'''\n`]/g, "").trim();
+  const match = cleaned.match(/^(SAVE|ASK|SKIP)\s+(.+)/i);
+  if (match) {
+    const action = match[1].toUpperCase() as "SAVE" | "ASK" | "SKIP";
+    return { action, speech: match[2].trim().slice(0, 25) };
   }
+  // Fallback: if no action prefix, treat as ASK with the text
+  return { action: "ASK", speech: cleaned.slice(0, 20) || "뭐였어?" };
 }
 
 /**
@@ -357,29 +362,8 @@ export async function llmDecideAfterResponse(context: {
   originalTranscript: string;
   category: string;
 }): Promise<{ action: string; response: string }> {
-  // Hardcoded fast-path for obvious signals (LLM can't be trusted with these)
-  const lastUserMsg = context.messages.filter((m) => m.role === "user").pop()?.text.trim() || "";
-  const lower = lastUserMsg.replace(/\s+/g, "");
-
-  // Obvious positive
-  if (/^(ㅇㅇ|응|어|ㅇ|그래|저장|당연|해줘|저장해|해)$/.test(lower)) {
-    return { action: "SAVE_CLIP", response: "알았어 저장!" };
-  }
-  // Obvious negative / confusion
-  if (/^(아니|ㄴㄴ|됐어|괜찮|그냥|아냐|뭐라고|뭐라는|왜|뭐|몰라)/.test(lower)) {
-    return { action: "IGNORE", response: "ㅇㅋ 넘어갈게" };
-  }
-  // Situation with keywords suggesting save-worthy
-  if (/보정|억까|버그|역전|골|대박|킬|에이스/.test(lower)) {
-    return { action: "SAVE_CLIP", response: "오 그거 저장할게" };
-  }
-  // Situation with keywords suggesting skip
-  if (/미스|실수|그냥|별거|아무것도/.test(lower)) {
-    return { action: "IGNORE", response: "아 괜찮아 넘어가자" };
-  }
-
   const dialogue = context.messages
-    .map((m) => `${m.role === "agent" ? "플로우" : "스트리머"}: "${m.text}"`)
+    .map((m) => `${m.role === "agent" ? "플로우" : "스트리머"}: ${m.text}`)
     .join("\n");
 
   const sessionCtx = getSessionContext();
@@ -389,32 +373,39 @@ export async function llmDecideAfterResponse(context: {
       role: "system",
       content: `${AGENT_SYSTEM_PROMPT}
 
-판단 규칙:
-- 긍정 신호 ("ㅇㅇ", "응", "저장해", "당연", "ㅇ", "그래") → SAVE_CLIP
-- 부정 신호 ("아니", "됐어", "ㄴㄴ", "그냥", "괜찮", "미스") → IGNORE
-- 되묻기 ("뭐라고", "왜", "뭐", "응?") → IGNORE (확신 없음 = 저장 안 함)
-- 상황 설명: 억까/버그/보정/대박 플레이 → SAVE_CLIP
-- 사소한 실수/패스미스/별거아님 → IGNORE
+스트리머와 대화 후 판단해. 한 줄로 응답:
 
-JSON으로만 응답: {"action":"SAVE_CLIP|IGNORE","response":"짧은 반응"}
-response는 자연스럽고 다양하게. 이전에 한 말 반복하지 마.`,
+SAVE 할말
+IGNORE 할말
+
+판단 기준:
+- "ㅇㅇ", "응", "저장해", "당연" → SAVE
+- "아니", "됐어", "그냥", "뭐라고", "왜" → IGNORE
+- 억까/버그/보정/대박 설명 → SAVE
+- 미스/실수/별거아님 → IGNORE
+
+예시:
+SAVE 알았어 저장!
+IGNORE ㅇㅋ 넘어갈게`,
     },
     {
       role: "user",
       content: `[세션] ${sessionCtx}
 [원래 반응] "${context.originalTranscript}" (${context.category})
 
-${dialogue}
-
-판단해.`,
+${dialogue}`,
     },
-  ], { temperature: 0.5, maxTokens: 80 });
+  ], { temperature: 0.3, maxTokens: 32 });
 
   if (error || !text) return { action: "SAVE_CLIP", response: "저장해둘게." };
 
-  try {
-    return JSON.parse(extractJSON(text));
-  } catch {
-    return { action: "SAVE_CLIP", response: "일단 저장해둘게." };
+  // Parse "SAVE 할말" or "IGNORE 할말" format
+  const cleaned = text.replace(/["""'''\n`]/g, "").trim();
+  const match = cleaned.match(/^(SAVE|IGNORE)\s+(.+)/i);
+  if (match) {
+    const action = match[1].toUpperCase() === "SAVE" ? "SAVE_CLIP" : "IGNORE";
+    return { action, response: match[2].trim().slice(0, 25) };
   }
+  // Fallback
+  return { action: "IGNORE", response: cleaned.slice(0, 20) || "넘어갈게" };
 }
