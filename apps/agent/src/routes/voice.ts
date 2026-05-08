@@ -18,7 +18,7 @@ import { decideAction } from "../services/action-decision.service.js";
 import { flowTracker } from "../services/flow-tracker.js";
 import { eventBus } from "../services/event-bus.js";
 import { captureScreenContext } from "../services/screen-context.service.js";
-import { llmClassify, llmClipTitle, llmShouldAsk, llmDecideAfterResponse, isLLMAvailable } from "../services/llm.service.js";
+import { llmClassify, llmClipTitle, llmShouldAsk, llmDecideAfterResponse, isLLMAvailable, recordAction, resetSessionMemory } from "../services/llm.service.js";
 import { generateCommentary, generateSessionEndCommentary } from "../services/agent-commentary.service.js";
 import { conversationManager } from "../services/conversation.service.js";
 
@@ -48,6 +48,7 @@ export const voiceRoute: FastifyPluginAsync = async (app) => {
 
           console.log(`[Conversation] LLM decision: ${decision.action} — "${decision.response}"`);
           conversationManager.conclude(decision.response, decision.action as AgentAction);
+          recordAction(convCtx.triggerEvent.transcript, decision.action, decision.response);
 
           // Execute the action — force=true bypasses category filter (user confirmed)
           if (decision.action === "SAVE_CLIP" && convCtx.triggerEvent) {
@@ -95,6 +96,7 @@ export const voiceRoute: FastifyPluginAsync = async (app) => {
           const newSessionId = sessionId || generateSessionId();
           await sessionState.start(newSessionId);
           flowTracker.reset();
+          resetSessionMemory();
           console.log(`[VoiceCommand] Session started: ${newSessionId}`);
           eventBus.emit({ type: "session_start", payload: { sessionId: newSessionId } });
           reply.status(200);

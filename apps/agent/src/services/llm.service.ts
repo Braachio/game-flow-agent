@@ -3,9 +3,38 @@
  * Expected to run via Ollama, vLLM, or llama.cpp server.
  */
 
+import { AGENT_SYSTEM_PROMPT, buildConversationContext } from "./agent-persona.js";
+
 const LLM_BASE_URL = process.env.LLM_BASE_URL || "http://localhost:11434/v1";
 const LLM_MODEL = process.env.LLM_MODEL || "gemma4:e2b";
 const LLM_TIMEOUT = 30_000;
+
+// Session memory for context-aware responses
+const sessionMemory = {
+  clipsSaved: 0,
+  recentActions: [] as Array<{ transcript: string; action: string; agentSaid?: string }>,
+  startedAt: Date.now(),
+};
+
+export function resetSessionMemory(): void {
+  sessionMemory.clipsSaved = 0;
+  sessionMemory.recentActions = [];
+  sessionMemory.startedAt = Date.now();
+}
+
+export function recordAction(transcript: string, action: string, agentSaid?: string): void {
+  if (action === "SAVE_CLIP") sessionMemory.clipsSaved++;
+  sessionMemory.recentActions.push({ transcript, action, agentSaid });
+  if (sessionMemory.recentActions.length > 10) sessionMemory.recentActions.shift();
+}
+
+function getSessionContext(): string {
+  return buildConversationContext({
+    clipsSaved: sessionMemory.clipsSaved,
+    recentActions: sessionMemory.recentActions,
+    sessionDurationMin: Math.round((Date.now() - sessionMemory.startedAt) / 60000),
+  });
+}
 
 interface ChatMessage {
   role: "system" | "user" | "assistant";
@@ -261,26 +290,26 @@ export async function llmShouldAsk(context: {
   isTurningPoint?: boolean;
   recentTranscripts?: string[];
 }): Promise<{ ask: boolean; question?: string }> {
+  const sessionCtx = getSessionContext();
+
   const { text, error } = await chat([
     {
       role: "system",
-      content: `너는 게임 스트리머의 AI 어시스턴트야. 스트리머가 게임 중 감정적 반응을 했어.
-스트리머에게 짧게 물어봐 — 클립 저장할지 확인하거나, 무슨 상황인지 물어봐.
-
-규칙:
-- 한 문장, 반말, 15자 이내
-- 상황에 맞게 자연스럽게
-- 예시: "지금 거 저장할까?", "뭐였어?", "오 방금 뭐야?", "저장해둘까?"
-- 텍스트만 출력 (따옴표, JSON 없이)`,
+      content: AGENT_SYSTEM_PROMPT,
     },
     {
       role: "user",
-      content: `발화: "${context.transcript}"
-감정: ${context.category}
-${context.isTurningPoint ? "흐름 반전 상황" : ""}
-최근: ${context.recentTranscripts?.slice(-2).map(t => `"${t}"`).join(", ") || "없음"}`,
+      content: `[세션 상태]
+${sessionCtx}
+
+[방금 일어난 일]
+스트리머: "${context.transcript}"
+감정 분석: ${context.category} (${Math.round(context.confidence * 100)}%)
+${context.isTurningPoint ? "⚡ 흐름 반전!" : ""}
+
+짧게 반응해. 저장할지 물어보거나, 확실하면 저장한다고 말해.`,
     },
-  ], { temperature: 0.7, maxTokens: 32 });
+  ], { temperature: 0.8, maxTokens: 32 });
 
   if (error || !text) return { ask: true, question: "저장할까?" };
 
@@ -297,33 +326,37 @@ export async function llmDecideAfterResponse(context: {
   category: string;
 }): Promise<{ action: string; response: string }> {
   const dialogue = context.messages
-    .map((m) => `${m.role === "agent" ? "에이전트" : "스트리머"}: "${m.text}"`)
+    .map((m) => `${m.role === "agent" ? "플로우" : "스트리머"}: "${m.text}"`)
     .join("\n");
+
+  const sessionCtx = getSessionContext();
 
   const { text, error } = await chat([
     {
       role: "system",
-      content: `너는 게임 스트리머의 AI 어시스턴트야. 대화를 보고 판단해.
+      content: `${AGENT_SYSTEM_PROMPT}
 
-핵심 규칙:
-- 스트리머가 "ㅇㅇ", "응", "저장해", "ㅇ", "당연" 등 긍정이면 → SAVE_CLIP
-- 스트리머가 "아니", "괜찮아", "됐어", "ㄴㄴ", "그냥" 등 부정이면 → IGNORE
-- 스트리머가 상황을 설명하면: 억까/버그/대박 플레이 → SAVE_CLIP, 사소한 미스 → IGNORE
+판단 규칙:
+- 긍정 신호 ("ㅇㅇ", "응", "저장", "당연", "ㅇ") → SAVE_CLIP
+- 부정 신호 ("아니", "됐어", "ㄴㄴ", "그냥", "괜찮") → IGNORE
+- 상황 설명 중 억까/버그/대박 → SAVE_CLIP
+- 사소한 실수/미스 → IGNORE
 
-JSON으로 응답: {"action":"SAVE_CLIP|TAG_EVENT|IGNORE","response":"스트리머에게 할 짧은 말 (반말, 15자 이내)"}`,
+JSON으로만 응답: {"action":"SAVE_CLIP|IGNORE","response":"짧은 반응"}
+response는 자연스럽고 다양하게. 이전에 한 말 반복하지 마.`,
     },
     {
       role: "user",
-      content: `원래 반응: "${context.originalTranscript}" (${context.category})
+      content: `[세션] ${sessionCtx}
+[원래 반응] "${context.originalTranscript}" (${context.category})
 
-대화:
 ${dialogue}
 
-뭘로 판단해?`,
+판단해.`,
     },
-  ], { temperature: 0.3, maxTokens: 80 });
+  ], { temperature: 0.5, maxTokens: 80 });
 
-  if (error || !text) return { action: "SAVE_CLIP", response: "일단 저장해둘게." };
+  if (error || !text) return { action: "SAVE_CLIP", response: "저장해둘게." };
 
   try {
     return JSON.parse(text);
