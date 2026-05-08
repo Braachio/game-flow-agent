@@ -18,7 +18,7 @@ import { decideAction } from "../services/action-decision.service.js";
 import { flowTracker } from "../services/flow-tracker.js";
 import { eventBus } from "../services/event-bus.js";
 import { captureScreenContext } from "../services/screen-context.service.js";
-import { llmClassify, llmClipTitle, llmReact, llmDecideAfterResponse, isLLMAvailable, recordAction, resetSessionMemory } from "../services/llm.service.js";
+import { llmReact, llmDecideAfterResponse, recordAction, resetSessionMemory } from "../services/llm.service.js";
 import { generateCommentary, generateSessionEndCommentary } from "../services/agent-commentary.service.js";
 import { handleDirectCommand } from "../services/agent-direct.service.js";
 import { detectWakeWord, isWaitingForCommand, startWaiting, consumeWaiting } from "../services/wake-word.service.js";
@@ -74,22 +74,28 @@ export const voiceRoute: FastifyPluginAsync = async (app) => {
           conversationManager.conclude(decision.response, decision.action as AgentAction);
           recordAction(convCtx.triggerEvent.transcript, decision.action, decision.response);
 
-          // Execute the action — force=true bypasses category filter (user confirmed)
+          // Execute the action — fire and forget (don't block response)
           if (decision.action === "SAVE_CLIP" && convCtx.triggerEvent) {
             const event = convCtx.triggerEvent;
             event.action = "SAVE_CLIP";
             event.actionReason = `conversation: ${decision.response}`;
-            const clipResult = await obsService.triggerClipForEvent(event, convCtx.triggerFlow, true);
-            if (clipResult.obsTriggeredAt) {
-              event.clipSaved = clipResult.clipSaved;
-              event.obsTriggeredAt = clipResult.obsTriggeredAt;
-              if (clipResult.clipSaved) {
-                const fileResult = await renameClipForEvent(event, sessionState.getFolderPath());
-                if (fileResult.clipFilename) event.clipFilename = fileResult.clipFilename;
-                if (fileResult.renamedFilePath) event.renamedFilePath = fileResult.renamedFilePath;
+            (async () => {
+              try {
+                const clipResult = await obsService.triggerClipForEvent(event, convCtx.triggerFlow, true);
+                if (clipResult.obsTriggeredAt) {
+                  event.clipSaved = clipResult.clipSaved;
+                  event.obsTriggeredAt = clipResult.obsTriggeredAt;
+                  if (clipResult.clipSaved) {
+                    const fileResult = await renameClipForEvent(event, sessionState.getFolderPath());
+                    if (fileResult.clipFilename) event.clipFilename = fileResult.clipFilename;
+                    if (fileResult.renamedFilePath) event.renamedFilePath = fileResult.renamedFilePath;
+                  }
+                  await eventRepository.update(event);
+                }
+              } catch (err) {
+                console.error("[Conversation] Async clip save error:", err);
               }
-              await eventRepository.update(event);
-            }
+            })();
           }
 
           reply.status(200);
@@ -155,19 +161,7 @@ export const voiceRoute: FastifyPluginAsync = async (app) => {
         return { ignored: true, reason: "low_confidence" };
       }
 
-      // LLM-assisted classification for ambiguous cases
-      if (classification.confidence > 0.1 && classification.confidence < 0.5 && classification.category !== "neutral") {
-        const llmResult = await llmClassify(transcript, {
-          currentCategory: classification.category,
-          confidence: classification.confidence,
-        });
-        if (llmResult && llmResult.category !== "neutral") {
-          console.log(`[LLM] Reclassified: "${transcript}" → ${llmResult.category} (was ${classification.category}). Reason: ${llmResult.reason}`);
-          classification.category = llmResult.category as typeof classification.category;
-          classification.confidence = 0.7; // LLM-boosted confidence
-          classification.matchedKeywords = [...classification.matchedKeywords, `llm:${llmResult.reason}`];
-        }
-      }
+      // LLM classification assist removed — llmReact handles all decisions
 
       // Action decision for non-command transcripts
       const decision = decideAction({
@@ -238,26 +232,30 @@ export const voiceRoute: FastifyPluginAsync = async (app) => {
       console.log(`[Agent] ${reaction.action}: "${reaction.speech}"`);
 
       if (reaction.action === "SAVE") {
-        // Save immediately — no confirmation needed
         recordAction(event.transcript, "SAVE_CLIP", reaction.speech);
-        const clipResult = await obsService.triggerClipForEvent(event, decision.flowContext, true);
-        if (clipResult.obsTriggeredAt) {
-          event.clipSaved = clipResult.clipSaved;
-          event.obsTriggeredAt = clipResult.obsTriggeredAt;
-          if (clipResult.clipSaved) {
-            const fileResult = await renameClipForEvent(event, sessionState.getFolderPath());
-            if (fileResult.clipFilename) event.clipFilename = fileResult.clipFilename;
-            if (fileResult.renamedFilePath) event.renamedFilePath = fileResult.renamedFilePath;
+        // OBS save + file rename — fire and forget (don't block response)
+        (async () => {
+          try {
+            const clipResult = await obsService.triggerClipForEvent(event, decision.flowContext, true);
+            if (clipResult.obsTriggeredAt) {
+              event.clipSaved = clipResult.clipSaved;
+              event.obsTriggeredAt = clipResult.obsTriggeredAt;
+              if (clipResult.clipSaved) {
+                const fileResult = await renameClipForEvent(event, sessionState.getFolderPath());
+                if (fileResult.clipFilename) event.clipFilename = fileResult.clipFilename;
+                if (fileResult.renamedFilePath) event.renamedFilePath = fileResult.renamedFilePath;
+              }
+              await eventRepository.update(event);
+            }
+          } catch (err) {
+            console.error("[Voice] Async clip save error:", err);
           }
-          await eventRepository.update(event);
-        }
+        })();
       } else if (reaction.action === "ASK") {
-        // Need more context — start conversation
         conversationManager.startConversation(event, reaction.speech, decision.flowContext || undefined);
       }
-      // SKIP = do nothing, just speak
 
-      // Return text immediately — frontend requests TTS separately
+      // Return immediately after LLM — OBS/TTS happen in background
       return { event, agentSpeech: reaction.speech };
     }
   );
