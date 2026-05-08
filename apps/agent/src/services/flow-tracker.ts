@@ -139,16 +139,10 @@ class FlowTracker {
     return (prevPositive && curNegative) || (prevNegative && curPositive);
   }
 
-  private getAdaptiveThreshold(category: ReactionCategory): number {
-    if (this.totalEvents < 10) return 0.4; // be lenient early
-
-    const catCount = this.categoryCounts[category] || 0;
-    const ratio = catCount / this.totalEvents;
-
-    // Only raise threshold if a category dominates heavily
-    if (ratio > 0.6) return 0.7;
-    if (ratio > 0.5) return 0.6;
-    return 0.4;
+  private getAdaptiveThreshold(_category: ReactionCategory): number {
+    // In conversational mode, the agent asks before saving.
+    // User confirmation is the real filter, so detection threshold stays low.
+    return 0.2;
   }
 }
 

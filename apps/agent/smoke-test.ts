@@ -148,14 +148,14 @@ console.log("\n=== 5. IGNORE does not store events (neutral / low confidence) ==
   });
   assert(d2.action === "IGNORE", "neutral → IGNORE");
 
-  // Low confidence on any category (below 0.4 threshold)
+  // Very low confidence (below 0.2 threshold)
   const d3 = decideAction({
     transcript: "와",
     category: "excitement",
-    confidence: 0.3,
+    confidence: 0.15,
     sessionActive: true,
   });
-  assert(d3.action === "IGNORE", "excitement but conf<0.4 → IGNORE");
+  assert(d3.action === "IGNORE", "excitement but conf<0.2 → IGNORE");
 }
 
 console.log("\n=== 6. Intent detection integration ===");
@@ -287,25 +287,30 @@ flowTracker.reset();
   assert(ctx.isTurningPoint === true, "positive→negative is turning point");
 }
 
-console.log("\n=== 14. Flow tracker — adaptive threshold ===");
+console.log("\n=== 14. Conversational mode — low threshold lets reactions through ===");
 flowTracker.reset();
 {
-  // Flood with frustration events (need 10+ and >60% dominance)
-  for (let i = 0; i < 12; i++) {
-    flowTracker.record("frustration", 0.7, false);
-  }
-  // Now frustration should have raised threshold
-  const ctx = flowTracker.analyze("frustration", 0.55);
-  assert(ctx.adaptiveThreshold > 0.4, `adaptive threshold raised: ${ctx.adaptiveThreshold}`);
+  // In conversational mode, threshold is fixed at 0.2 (user confirms via dialogue)
+  const ctx = flowTracker.analyze("frustration", 0.3);
+  assert(ctx.adaptiveThreshold === 0.2, `threshold is 0.2: ${ctx.adaptiveThreshold}`);
 
-  // Decision should ignore due to adaptive threshold
+  // 0.3 confidence should now pass (above 0.2)
   const d = decideAction({
     transcript: "짜증나",
     category: "frustration",
-    confidence: 0.55,
+    confidence: 0.3,
     sessionActive: true,
   });
-  assert(d.action === "IGNORE", `below adaptive threshold → IGNORE (got ${d.action})`);
+  assert(d.action === "TAG_EVENT", `low conf frustration passes → TAG_EVENT (got ${d.action})`);
+
+  // Below 0.2 still ignored
+  const d2 = decideAction({
+    transcript: "음",
+    category: "neutral",
+    confidence: 0.1,
+    sessionActive: true,
+  });
+  assert(d2.action === "IGNORE", `very low conf → IGNORE (got ${d2.action})`);
 }
 
 console.log(`\n${"=".repeat(40)}`);

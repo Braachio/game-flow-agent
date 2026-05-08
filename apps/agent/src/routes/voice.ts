@@ -130,7 +130,7 @@ export const voiceRoute: FastifyPluginAsync = async (app) => {
       }
 
       // LLM-assisted classification for ambiguous cases
-      if (classification.confidence > 0.3 && classification.confidence < 0.6 && classification.category !== "neutral") {
+      if (classification.confidence > 0.1 && classification.confidence < 0.5 && classification.category !== "neutral") {
         const llmResult = await llmClassify(transcript, {
           currentCategory: classification.category,
           confidence: classification.confidence,

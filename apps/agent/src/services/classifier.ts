@@ -95,7 +95,7 @@ export function classify(transcript: string): ClassificationResult {
   for (const rule of KEYWORD_RULES) {
     const matches: string[] = [];
     for (const keyword of rule.keywords) {
-      if (transcript.includes(keyword)) {
+      if (transcript.includes(keyword) || transcriptNoSpace.includes(keyword.replace(/\s+/g, ""))) {
         matches.push(keyword);
       }
     }

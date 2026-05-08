@@ -17,15 +17,10 @@ export class EventGuard {
     const now = Date.now();
     const config = runtimeConfig.getCached();
 
-    // 1. Low confidence check
-    if (confidence < config.confidenceThreshold) {
-      console.log(
-        `[EventGuard] IGNORED (low_confidence): "${transcript}" → ${category} (${(confidence * 100).toFixed(0)}% < ${config.confidenceThreshold * 100}%)`
-      );
-      return { allowed: false, reason: "low_confidence" };
-    }
+    // Confidence is handled by action-decision layer (adaptive threshold).
+    // EventGuard only checks duplicates and cooldowns.
 
-    // 2. Duplicate transcript check (same text within window)
+    // 1. Duplicate transcript check (same text within window)
     if (
       this.lastTranscript === transcript &&
       now - this.lastTranscriptTime < config.duplicateWindowMs
