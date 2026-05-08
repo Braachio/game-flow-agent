@@ -69,7 +69,18 @@ export default function Home() {
       }
     } else if (event.type === "agent_speak") {
       const p = event.payload as { text: string };
-      ttsRef.current.speak(p.text);
+      console.log("[TTS] Speaking:", p.text);
+      // Direct speechSynthesis call to bypass hook chain issues
+      const synth = window.speechSynthesis;
+      if (synth && ttsRef.current.enabled) {
+        const u = new SpeechSynthesisUtterance(p.text);
+        u.lang = "ko-KR";
+        u.rate = 1.2;
+        const voices = synth.getVoices();
+        const korean = voices.find((v) => v.lang.startsWith("ko"));
+        if (korean) u.voice = korean;
+        synth.speak(u);
+      }
     }
   }, [playClipSound]);
 
