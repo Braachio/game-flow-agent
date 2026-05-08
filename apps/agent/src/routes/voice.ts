@@ -5,6 +5,7 @@ import type {
   VoiceEventResponse,
   VoiceEventIgnoredResponse,
   VoiceCommandResponse,
+  AgentAction,
 } from "@likelion/shared";
 import { classify } from "../services/classifier.js";
 import { eventRepository } from "../services/event-repository.js";
@@ -17,13 +18,17 @@ import { decideAction } from "../services/action-decision.service.js";
 import { flowTracker } from "../services/flow-tracker.js";
 import { eventBus } from "../services/event-bus.js";
 import { captureScreenContext } from "../services/screen-context.service.js";
-import { llmClassify, llmClipTitle, isLLMAvailable } from "../services/llm.service.js";
+import { llmReact, llmDecideAfterResponse, recordAction, resetSessionMemory } from "../services/llm.service.js";
+import { getCachedReaction, shouldUseCache } from "../services/react-cache.service.js";
 import { generateCommentary, generateSessionEndCommentary } from "../services/agent-commentary.service.js";
+import { handleDirectCommand } from "../services/agent-direct.service.js";
+import { detectWakeWord, isWaitingForCommand, startWaiting, consumeWaiting } from "../services/wake-word.service.js";
+import { conversationManager } from "../services/conversation.service.js";
 
 export const voiceRoute: FastifyPluginAsync = async (app) => {
   app.post<{ Body: VoiceEventRequest }>(
     "/events/voice",
-    async (request, reply): Promise<VoiceEventResponse | VoiceEventIgnoredResponse | VoiceCommandResponse> => {
+    async (request, reply) => {
       const { transcript, sessionId, timestamp } = request.body;
 
       if (!transcript || typeof transcript !== "string") {
@@ -32,6 +37,72 @@ export const voiceRoute: FastifyPluginAsync = async (app) => {
       }
 
       console.log(`[Voice] Received: "${transcript}"`);
+
+      // Wake word "자비스" → direct agent mode
+      const wake = detectWakeWord(transcript);
+      if (wake.hasWakeWord || isWaitingForCommand()) {
+        const command = wake.hasWakeWord ? wake.command : consumeWaiting(transcript);
+
+        // "자비스" alone with no command → wait for next utterance
+        if (!command && wake.hasWakeWord) {
+          console.log(`[Agent] Wake word only — waiting for command...`);
+          startWaiting();
+          reply.status(200);
+          return { agentSpeech: "응?" };
+        }
+
+        console.log(`[Agent] Command: "${command}"`);
+        const result = await handleDirectCommand(command, sessionId);
+        reply.status(200);
+        return {
+          agentSpeech: result.speech,
+          agentAction: result.action,
+        };
+      }
+
+      // If agent is waiting for user response in a conversation, route here
+      if (conversationManager.isActive()) {
+        const convCtx = conversationManager.receiveUserResponse(transcript);
+        if (convCtx) {
+          // LLM decides based on the full conversation
+          const decision = await llmDecideAfterResponse({
+            messages: convCtx.messages,
+            originalTranscript: convCtx.triggerEvent.transcript,
+            category: convCtx.triggerEvent.category,
+          });
+
+          console.log(`[Conversation] LLM decision: ${decision.action} — "${decision.response}"`);
+          conversationManager.conclude(decision.response, decision.action as AgentAction);
+          recordAction(convCtx.triggerEvent.transcript, decision.action, decision.response);
+
+          // Execute the action — fire and forget (don't block response)
+          if (decision.action === "SAVE_CLIP" && convCtx.triggerEvent) {
+            const event = convCtx.triggerEvent;
+            event.action = "SAVE_CLIP";
+            event.actionReason = `conversation: ${decision.response}`;
+            (async () => {
+              try {
+                const clipResult = await obsService.triggerClipForEvent(event, convCtx.triggerFlow, true);
+                if (clipResult.obsTriggeredAt) {
+                  event.clipSaved = clipResult.clipSaved;
+                  event.obsTriggeredAt = clipResult.obsTriggeredAt;
+                  if (clipResult.clipSaved) {
+                    const fileResult = await renameClipForEvent(event, sessionState.getFolderPath());
+                    if (fileResult.clipFilename) event.clipFilename = fileResult.clipFilename;
+                    if (fileResult.renamedFilePath) event.renamedFilePath = fileResult.renamedFilePath;
+                  }
+                  await eventRepository.update(event);
+                }
+              } catch (err) {
+                console.error("[Conversation] Async clip save error:", err);
+              }
+            })();
+          }
+
+          reply.status(200);
+          return { ignored: true, reason: "low_confidence" as const, agentSpeech: decision.response };
+        }
+      }
 
       // Detect voice command intent
       const intentResult = detectIntent(transcript);
@@ -56,6 +127,7 @@ export const voiceRoute: FastifyPluginAsync = async (app) => {
           const newSessionId = sessionId || generateSessionId();
           await sessionState.start(newSessionId);
           flowTracker.reset();
+          resetSessionMemory();
           console.log(`[VoiceCommand] Session started: ${newSessionId}`);
           eventBus.emit({ type: "session_start", payload: { sessionId: newSessionId } });
           reply.status(200);
@@ -90,19 +162,7 @@ export const voiceRoute: FastifyPluginAsync = async (app) => {
         return { ignored: true, reason: "low_confidence" };
       }
 
-      // LLM-assisted classification for ambiguous cases
-      if (classification.confidence > 0.3 && classification.confidence < 0.6 && classification.category !== "neutral") {
-        const llmResult = await llmClassify(transcript, {
-          currentCategory: classification.category,
-          confidence: classification.confidence,
-        });
-        if (llmResult && llmResult.category !== "neutral") {
-          console.log(`[LLM] Reclassified: "${transcript}" → ${llmResult.category} (was ${classification.category}). Reason: ${llmResult.reason}`);
-          classification.category = llmResult.category as typeof classification.category;
-          classification.confidence = 0.7; // LLM-boosted confidence
-          classification.matchedKeywords = [...classification.matchedKeywords, `llm:${llmResult.reason}`];
-        }
-      }
+      // LLM classification assist removed — llmReact handles all decisions
 
       // Action decision for non-command transcripts
       const decision = decideAction({
@@ -153,67 +213,8 @@ export const voiceRoute: FastifyPluginAsync = async (app) => {
         } : undefined,
       });
 
-      // Only trigger OBS clip when action is SAVE_CLIP
-      if (decision.action === "SAVE_CLIP") {
-        const clipResult = await obsService.triggerClipForEvent(event, decision.flowContext);
-
-        if (clipResult.obsTriggeredAt) {
-          event.clipSaved = clipResult.clipSaved;
-          event.obsTriggeredAt = clipResult.obsTriggeredAt;
-          if (clipResult.obsError) {
-            event.obsError = clipResult.obsError;
-          }
-
-          if (clipResult.clipSaved) {
-            const fileResult = await renameClipForEvent(event, sessionState.getFolderPath());
-            if (fileResult.clipFilename) {
-              event.clipFilename = fileResult.clipFilename;
-            }
-            if (fileResult.originalFilePath) {
-              event.originalFilePath = fileResult.originalFilePath;
-            }
-            if (fileResult.renamedFilePath) {
-              event.renamedFilePath = fileResult.renamedFilePath;
-            }
-            if (fileResult.sessionFolderPath) {
-              event.sessionFolderPath = fileResult.sessionFolderPath;
-            }
-            if (fileResult.clipRenameError) {
-              event.clipRenameError = fileResult.clipRenameError;
-            }
-            if (fileResult.clipMoveError) {
-              event.clipMoveError = fileResult.clipMoveError;
-            }
-          }
-
-          // Capture screen context for additional metadata
-          const screenCtx = await captureScreenContext();
-          if (screenCtx.gameEvents.length > 0 || screenCtx.scoreInfo) {
-            event.metadata = {
-              ...event.metadata as Record<string, unknown>,
-              screenGameEvents: screenCtx.gameEvents,
-              screenScore: screenCtx.scoreInfo,
-            };
-          }
-
-          // LLM clip title (non-blocking, best-effort)
-          const meta = event.metadata as Record<string, unknown> | undefined;
-          llmClipTitle({
-            transcript: event.transcript,
-            category: event.category,
-            isTurningPoint: !!meta?.isTurningPoint,
-            phase: meta?.phase as string,
-          }).then((title) => {
-            if (title) {
-              event.metadata = { ...event.metadata as Record<string, unknown>, clipTitle: title };
-              eventRepository.update(event);
-              console.log(`[LLM] Clip title: "${title}" for "${event.transcript}"`);
-            }
-          });
-
-          await eventRepository.update(event);
-        }
-      }
+      // NOTE: OBS clip is NOT saved here anymore.
+      // Clips are only saved after user confirms via conversation.
 
       // Record in flow tracker
       // Record based on action decision, not OBS result (suppression should work even without OBS)
@@ -221,15 +222,54 @@ export const voiceRoute: FastifyPluginAsync = async (app) => {
 
       eventBus.emit({ type: "voice_event", payload: event });
 
-      // Agent commentary (non-blocking) — based on action decision, not OBS result
-      generateCommentary({
-        event,
-        flowContext: decision.flowContext,
-        clipSaved: decision.action === "SAVE_CLIP",
-        action: decision.action,
+      // Cache-first: instant response for common reactions, LLM for special moments
+      const useCache = shouldUseCache({
+        category: event.category,
+        confidence: event.confidence,
+        isTurningPoint: decision.flowContext?.isTurningPoint,
       });
 
-      return { event };
+      let reaction: { action: "SAVE" | "ASK" | "SKIP"; speech: string };
+      if (useCache) {
+        const cached = getCachedReaction(event.category);
+        reaction = cached || { action: "ASK", speech: "뭐였어?" };
+        console.log(`[Agent] ${reaction.action}: "${reaction.speech}" (cached)`);
+      } else {
+        reaction = await llmReact({
+          transcript: event.transcript,
+          category: event.category,
+          confidence: event.confidence,
+          isTurningPoint: decision.flowContext?.isTurningPoint,
+        });
+        console.log(`[Agent] ${reaction.action}: "${reaction.speech}" (LLM)`);
+      }
+
+      if (reaction.action === "SAVE") {
+        recordAction(event.transcript, "SAVE_CLIP", reaction.speech);
+        // OBS save + file rename — fire and forget (don't block response)
+        (async () => {
+          try {
+            const clipResult = await obsService.triggerClipForEvent(event, decision.flowContext, true);
+            if (clipResult.obsTriggeredAt) {
+              event.clipSaved = clipResult.clipSaved;
+              event.obsTriggeredAt = clipResult.obsTriggeredAt;
+              if (clipResult.clipSaved) {
+                const fileResult = await renameClipForEvent(event, sessionState.getFolderPath());
+                if (fileResult.clipFilename) event.clipFilename = fileResult.clipFilename;
+                if (fileResult.renamedFilePath) event.renamedFilePath = fileResult.renamedFilePath;
+              }
+              await eventRepository.update(event);
+            }
+          } catch (err) {
+            console.error("[Voice] Async clip save error:", err);
+          }
+        })();
+      } else if (reaction.action === "ASK") {
+        conversationManager.startConversation(event, reaction.speech, decision.flowContext || undefined);
+      }
+
+      // Return immediately after LLM — OBS/TTS happen in background
+      return { event, agentSpeech: reaction.speech };
     }
   );
 };

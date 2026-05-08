@@ -8,6 +8,7 @@ import { evaluationRoute } from "./routes/evaluation.js";
 import { sessionsRoute } from "./routes/sessions.js";
 import { sseRoute } from "./routes/sse.js";
 import { settingsRoute } from "./routes/settings.js";
+import { ttsRoute } from "./routes/tts.js";
 
 const app = Fastify({ logger: true });
 
@@ -20,6 +21,7 @@ app.register(evaluationRoute);
 app.register(sessionsRoute);
 app.register(sseRoute);
 app.register(settingsRoute);
+app.register(ttsRoute);
 
 const PORT = Number(process.env.PORT) || 3001;
 

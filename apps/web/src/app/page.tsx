@@ -4,7 +4,6 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useSpeechRecognition } from "@/hooks/useSpeechRecognition";
 import { useObs } from "@/hooks/useObs";
 import { useClipSound } from "@/hooks/useClipSound";
-import { useEventStream } from "@/hooks/useEventStream";
 import { useTTS } from "@/hooks/useTTS";
 import { SessionTimeline } from "@/components/SessionTimeline";
 import Link from "next/link";
@@ -38,42 +37,49 @@ export default function Home() {
   const ttsRef = useRef(tts);
   ttsRef.current = tts;
 
-  // SSE: receive real-time events from agent (works across tabs)
-  const handleSSE = useCallback((event: { type: string; payload: unknown }) => {
-    if (event.type === "voice_event") {
-      const e = event.payload as VoiceEvent;
-      // Only add if it belongs to our session
-      if (!sessionIdRef.current || e.sessionId === sessionIdRef.current) {
+  // SSE: direct EventSource connection (no hook abstraction)
+  const [sseConnected, setSseConnected] = useState(false);
+
+  useEffect(() => {
+    const es = new EventSource(`${AGENT_URL}/events/stream`);
+
+    es.onopen = () => setSseConnected(true);
+    es.onerror = () => setSseConnected(false);
+
+    es.addEventListener("voice_event", (e) => {
+      const ev = JSON.parse(e.data) as VoiceEvent;
+      if (!sessionIdRef.current || ev.sessionId === sessionIdRef.current) {
         setEvents((prev) => {
-          if (prev.some((p) => p.id === e.id)) return prev;
-          return [...prev, e];
+          if (prev.some((p) => p.id === ev.id)) return prev;
+          return [...prev, ev];
         });
-        setLastEvent(e);
-        if (e.clipSaved) {
+        setLastEvent(ev);
+        if (ev.clipSaved) {
           setClipCount((c) => c + 1);
           playClipSound();
         }
       }
-    } else if (event.type === "session_start") {
-      const p = event.payload as { sessionId: string };
-      // Another client started a session — sync state
+    });
+
+    es.addEventListener("session_start", (e) => {
+      const p = JSON.parse(e.data) as { sessionId: string };
       if (!sessionIdRef.current) {
         sessionIdRef.current = p.sessionId;
         setSessionActive(true);
       }
-    } else if (event.type === "session_end") {
-      // Another client ended the session
+    });
+
+    es.addEventListener("session_end", () => {
       if (sessionIdRef.current) {
         setSessionActive(false);
         setSessionSummary([...eventsRef.current]);
       }
-    } else if (event.type === "agent_speak") {
-      const p = event.payload as { text: string };
-      ttsRef.current.speak(p.text);
-    }
-  }, [playClipSound]);
+    });
 
-  const { connected: sseConnected } = useEventStream({ onEvent: handleSSE });
+    // agent_speak TTS is handled via HTTP response, not SSE
+
+    return () => { es.close(); };
+  }, []);
 
   // --- Session control ---
 
@@ -133,6 +139,27 @@ export default function Home() {
             setClipCount((c) => c + 1);
             playClipSound();
           }
+        }
+        // Agent speaks — request TTS async, play when ready
+        if (data.agentSpeech) {
+          fetch(`${AGENT_URL}/tts/speak`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ text: data.agentSpeech }),
+          })
+            .then((r) => r.json())
+            .then((tts) => {
+              if (tts.audioUrl) {
+                new Audio(`${AGENT_URL}${tts.audioUrl}`).play().catch(() => {});
+              }
+            })
+            .catch(() => {
+              // Fallback to Web Speech
+              const u = new SpeechSynthesisUtterance(data.agentSpeech);
+              u.lang = "ko-KR";
+              u.rate = 1.2;
+              speechSynthesis?.speak(u);
+            });
         }
       }
     } catch {} finally {
