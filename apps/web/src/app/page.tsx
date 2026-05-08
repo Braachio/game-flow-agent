@@ -76,20 +76,7 @@ export default function Home() {
       }
     });
 
-    es.addEventListener("agent_speak", (e) => {
-      const p = JSON.parse(e.data) as { text: string };
-      console.log("[TTS] Speaking:", p.text);
-      const synth = window.speechSynthesis;
-      if (synth) {
-        const u = new SpeechSynthesisUtterance(p.text);
-        u.lang = "ko-KR";
-        u.rate = 1.2;
-        const voices = synth.getVoices();
-        const korean = voices.find((v) => v.lang.startsWith("ko"));
-        if (korean) u.voice = korean;
-        synth.speak(u);
-      }
-    });
+    // agent_speak TTS is handled via HTTP response, not SSE
 
     return () => { es.close(); };
   }, []);
