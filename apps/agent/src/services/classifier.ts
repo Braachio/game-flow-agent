@@ -209,8 +209,8 @@ function shouldFilter(transcript: string, debug: ClassificationDebug): boolean {
 
   // Minimum: need 2+ meaningful tokens OR a repeated pattern
   if (meaningfulTokens.length < 2 && !hasRepetition(tokens)) {
-    // Allow through if the single meaningful token is multi-syllable (2+ chars)
-    if (meaningfulTokens.length === 1 && meaningfulTokens[0].length >= 2) {
+    // Allow through if the single meaningful token is multi-syllable or a strong keyword
+    if (meaningfulTokens.length === 1 && (meaningfulTokens[0].length >= 2 || isStrongSingleChar(meaningfulTokens[0]))) {
       return false;
     }
     debug.filtered = true;
