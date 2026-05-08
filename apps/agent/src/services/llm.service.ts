@@ -6,7 +6,8 @@
 import { AGENT_SYSTEM_PROMPT, buildConversationContext } from "./agent-persona.js";
 
 const LLM_BASE_URL = process.env.LLM_BASE_URL || "http://localhost:11434/v1";
-const LLM_MODEL = process.env.LLM_MODEL || "gemma4:e2b";
+const LLM_MODEL = process.env.LLM_MODEL || "gemma3:12b";
+const LLM_FAST_MODEL = process.env.LLM_FAST_MODEL || "gemma3:4b";
 const LLM_TIMEOUT = 30_000;
 
 /** Extract JSON from LLM output that may be wrapped in markdown code blocks */
@@ -55,7 +56,7 @@ interface LLMResponse {
   error?: string;
 }
 
-async function chat(messages: ChatMessage[], options?: { temperature?: number; maxTokens?: number }): Promise<LLMResponse> {
+async function chat(messages: ChatMessage[], options?: { temperature?: number; maxTokens?: number; fast?: boolean }): Promise<LLMResponse> {
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), LLM_TIMEOUT);
@@ -64,7 +65,7 @@ async function chat(messages: ChatMessage[], options?: { temperature?: number; m
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: LLM_MODEL,
+        model: options?.fast ? LLM_FAST_MODEL : LLM_MODEL,
         messages,
         temperature: options?.temperature ?? 0.3,
         max_tokens: options?.maxTokens ?? 512,
@@ -330,7 +331,7 @@ SKIP ㅋㅋ`,
       content: `[세션] ${sessionCtx}
 스트리머: "${context.transcript}" (${context.category}${context.isTurningPoint ? ", 흐름반전" : ""})`,
     },
-  ], { temperature: 0.7, maxTokens: 32 });
+  ], { temperature: 0.7, maxTokens: 32, fast: true });
 
   if (error || !text) {
     if (context.category === "excitement" || context.category === "victory") {

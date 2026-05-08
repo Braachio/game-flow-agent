@@ -19,6 +19,7 @@ import { flowTracker } from "../services/flow-tracker.js";
 import { eventBus } from "../services/event-bus.js";
 import { captureScreenContext } from "../services/screen-context.service.js";
 import { llmReact, llmDecideAfterResponse, recordAction, resetSessionMemory } from "../services/llm.service.js";
+import { getCachedReaction, shouldUseCache } from "../services/react-cache.service.js";
 import { generateCommentary, generateSessionEndCommentary } from "../services/agent-commentary.service.js";
 import { handleDirectCommand } from "../services/agent-direct.service.js";
 import { detectWakeWord, isWaitingForCommand, startWaiting, consumeWaiting } from "../services/wake-word.service.js";
@@ -221,15 +222,27 @@ export const voiceRoute: FastifyPluginAsync = async (app) => {
 
       eventBus.emit({ type: "voice_event", payload: event });
 
-      // LLM decides action + speech in one call
-      const reaction = await llmReact({
-        transcript: event.transcript,
+      // Cache-first: instant response for common reactions, LLM for special moments
+      const useCache = shouldUseCache({
         category: event.category,
         confidence: event.confidence,
         isTurningPoint: decision.flowContext?.isTurningPoint,
       });
 
-      console.log(`[Agent] ${reaction.action}: "${reaction.speech}"`);
+      let reaction: { action: "SAVE" | "ASK" | "SKIP"; speech: string };
+      if (useCache) {
+        const cached = getCachedReaction(event.category);
+        reaction = cached || { action: "ASK", speech: "뭐였어?" };
+        console.log(`[Agent] ${reaction.action}: "${reaction.speech}" (cached)`);
+      } else {
+        reaction = await llmReact({
+          transcript: event.transcript,
+          category: event.category,
+          confidence: event.confidence,
+          isTurningPoint: decision.flowContext?.isTurningPoint,
+        });
+        console.log(`[Agent] ${reaction.action}: "${reaction.speech}" (LLM)`);
+      }
 
       if (reaction.action === "SAVE") {
         recordAction(event.transcript, "SAVE_CLIP", reaction.speech);
